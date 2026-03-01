@@ -1,5 +1,194 @@
 # SaneBar Research Cache
 
+## Accessibility Loop + Startup Rehide Regression (Signature + Startup Gate)
+
+**Updated:** 2026-02-28 | **Status:** verified | **TTL:** 30d  
+**Source:** Local logs + local code + Apple docs + GitHub competitor code
+
+### Verified Findings
+
+1. **Permission loop is strongly tied to signing identity mismatch during local test launches.**
+   - When `/Applications/SaneBar.app` was staged from local `ProdDebug`, it was signed with **Apple Development**.
+   - Release artifacts are signed with **Developer ID Application**.
+   - Designated requirements differ:
+     - Dev build: `certificate leaf[subject.CN] = "Apple Development: ..."`
+     - Release build: `certificate leaf[subject.OU] = M78L6FXD48` with Developer ID chain.
+   - Result observed in app behavior: SaneBar reported no Accessibility trust (`list icons` AppleScript returned accessibility error) even though Accessibility UI showed SaneBar entries.
+
+2. **Startup auto-hide was explicitly blocked when accessibility was false.**
+   - In `Core/MenuBarManager.swift`, startup flow returned early with:
+     - `"Skipping initial hide: accessibility permission not granted"`
+   - This matched user symptom: app launched expanded and only hid after manual interaction.
+
+3. **Browse/Second-bar view was forcing repeated live trust probes on passive refresh paths.**
+   - `MenuBarSearchView.syncAccessibilityState()` called `requestAccessibility()` (live check) from `onAppear`, activation, and refresh paths.
+   - Logs showed repeated TCC access checks during these periods.
+
+4. **Competitor patterns (Ice/Dozer/Hidden) are different from the problematic path.**
+   - Ice: passive checks use non-prompt trust checks; prompting is explicit user action (`checkIsProcessTrusted(prompt: true)` only on request action).
+   - Dozer/Hidden: startup hide behavior is not blocked by Accessibility trust checks.
+
+### Fixes Applied (Local Code)
+
+- `Core/MenuBarManager.swift`
+  - Removed startup hard-stop on missing accessibility.
+  - Startup now hides deterministically.
+  - Added deferred always-hidden pin enforcement once permission becomes granted.
+
+- `UI/SearchWindow/MenuBarSearchView.swift`
+  - Passive permission sync now uses cached `isGranted`.
+  - Live trust probe (`requestAccessibility()`) is now explicit on retry action only.
+
+- `Tests/RuntimeGuardXCTests.swift`
+  - Updated startup-hide regression assertion to the new behavior.
+  - Added assertion that only retry forces a live accessibility probe.
+
+### API/Reference Notes
+
+- Apple docs:
+  - `AXIsProcessTrusted()`: check trust state.
+  - `AXIsProcessTrustedWithOptions(_:)` + `kAXTrustedCheckOptionPrompt`: prompt-capable check option.
+
+- Competitor references:
+  - Ice permissions flow (`Permission.swift`, `PermissionsManager.swift`)
+  - Dozer startup hide flow (`AppDelegate.swift`, `DozerIcons.swift`)
+
+## Regression Meta-Sweep (Issues + Email + Release Pipeline + App/Test Surface)
+
+**Updated:** 2026-02-28 | **Status:** verified | **TTL:** 30d
+**Source:** GitHub issues/releases API, `check-inbox.sh` (`healthcheck`, `check`, `review`, `audit`), `SANEBAR_RELEASE_PREFLIGHT=1 ruby scripts/qa.rb`, local code/test review
+
+### What This Sweep Confirmed
+
+1. **Hotfix is not fully resolved**
+   - Open issue: `sane-apps/SaneBar#93` created on **2026-02-28** from app version **2.1.14 (2114)**.
+   - Reporter diagnostics include repeated:
+     - `Move verification failed: expected toHidden=false ... afterMidX=611.5` with separator around `1208`.
+   - This is a direct post-hotfix regression signal on latest build at report time.
+
+2. **Regression density clusters right after releases**
+   - Latest 10 release intervals (hours): `31.83, 13.08, 7.71, 19.4, 4.65, 24.72, 0.92, 63.13, 116.42`.
+   - Median release spacing: **19.4h**; minimum: **0.92h**.
+   - Issues created within release windows (87 total):
+     - `<=1h`: 2
+     - `<=3h`: 5
+     - `<=6h`: 10
+     - `<=24h`: 18
+   - After latest release `v2.1.14` (2026-02-28T13:07:24Z):
+     - `#92` at +0.11h
+     - `#93` at +1.52h
+
+3. **Preflight guardrails are present and working**
+   - `scripts/qa.rb` blocks fast-release cadence and unconfirmed regression closes unless a **typed manual phrase** is entered.
+   - Fresh preflight run failed with:
+     - release cadence `<24h`
+     - unconfirmed regression closes (`#92`, `#91`)
+   - This confirms the guard logic itself is active.
+
+4. **Critical workflow gap: full release path is not hard-wired to those preflight checks**
+   - `infra/SaneProcess/scripts/release.sh --full` does not require `run_release_preflight_only`.
+   - It runs generic tests (`run_tests`) plus warnings, but does not enforce the SaneBar project QA gate in-band.
+   - Result: guardrails can exist but still be skipped in practice.
+
+5. **Issue-close discipline still leaks**
+   - `#91` and `#92` were closed as fixed without reporter-side confirmation comment.
+   - Same symptom reappeared immediately (`#93` remains open).
+
+6. **Primary defect themes remain stable across GitHub + email**
+   - GitHub buckets (title/body heuristic):
+     - move/visible/hidden: 52
+     - menu-open/click reliability: 52
+     - reset/persistence: 37
+     - second-menu-bar specific: 17
+   - Email sample shows matching language:
+     - ghost cursor / cursor jump during move attempts
+     - can’t move to visible
+     - second menu bar click opens inconsistently
+     - resets/disappearances after restart/update
+
+7. **App-level fragility is still concentrated in separator/cached-position move logic**
+   - Move-to-visible path depends on `getSeparatorRightEdgeX()` + cached/estimated separator fallback.
+   - Existing failure log (`expected toHidden=false`) indicates drag posts, but final frame stays on hidden side of threshold.
+   - This is consistent with boundary/caching drift in real layouts.
+
+8. **Test blind spot likely inflates confidence**
+   - `Tests/RuntimeGuardXCTests.swift` includes many source-string assertions (`source.contains(...)`) rather than behavioral assertions.
+   - Sweep count: **44 text-assert checks** vs relatively few runtime move verification checks.
+   - Coverage for visible-move boundary behavior is thin compared to observed failures.
+
+9. **Fresh competitor sweep (GitHub) confirms this class of app is inherently high-risk around the same edges**
+   - Repo sampled: `jordanbaird/Ice` (latest 200 issues via GitHub API).
+   - Counts in sample: `163 open / 37 closed`.
+   - Title-bucket hits in sample:
+     - menu/click/open: 77
+     - multi-monitor/notch/display: 28
+     - crash/freeze/perf: 23
+     - drag/move/reorder: 8
+     - persist/reset: 4
+   - Meaning: menu-bar managers repeatedly fail in click routing, display geometry, and move/reorder reliability under OS drift. SaneBar should bias for hardening over feature velocity in these surfaces.
+
+### Hardening Priorities (Research-Only Recommendation)
+
+1. **Make release preflight non-optional in `--full` flow** (no release without passing project QA guardrails).
+2. **No regression issue close without reporter confirmation OR reproducible local evidence artifact** (logs/recording attached to issue).
+3. **Treat move verification failures as release blockers when they occur on latest version within 24h of release.**
+4. **Shift regression tests from source-text assertions to behavioral tests for move-to-visible boundary/caching scenarios.**
+5. **Reduce hotfix compression pressure** (enforce soak windows unless explicitly approved with typed phrase + reason recorded).
+
+### No-Bypass Release Matrix (Current vs Needed)
+
+| Vector | Current behavior (verified) | Risk | Required hardening |
+|---|---|---|---|
+| `--full` release path | Does not hard-require `run_release_preflight_only`; runs tests but not project QA guardrails in-band | Guardrails exist but can be skipped | Make `--full` invoke preflight first and hard-fail on any preflight error |
+| `--allow-repeat-failure` | Explicitly bypasses repeat-failure guard | Releasing after unresolved repeated failures | Require typed approval phrase + reason + runbook ticket ID before flag is accepted |
+| `--allow-unsynced-peer` | Explicitly bypasses machine reconcile gate | Shipping from unsynced machine state | Require typed approval phrase + automatic branch/hash snapshot into release ledger |
+| `--allow-republish` | Allows republishing same live version/build | Re-shipping stale/bad build metadata | Require typed approval phrase + forced `--notes` reason + issue link |
+| `--allow-channel-sync-failures` | Allows deploy when GitHub/Homebrew sync fails | Public channel drift; update confusion | Block by default for public apps unless emergency approval phrase is entered |
+| `--skip-notarize` | Skips notarization with warning | Unsuitable artifact can leak into release flow | Restrict to non-deploy mode only; hard-block when `--deploy` is present |
+| `--skip-build` | Reuses existing archive | Can deploy wrong artifact/version | Require artifact hash/version verification against requested version before deploy |
+| `--skip-appstore` | Skips App Store path with warning | Cross-channel inconsistency | Require explicit reason in release ledger for enabled App Store apps |
+| Regression issue close | Can close without reporter confirmation | False “fixed” status hides live regressions | Block close in SOP unless reporter confirms or maintainer posts reproducible verification evidence |
+
+### One-Page Stability SOP (Release + Hotfix)
+
+1. **Triage trigger**
+   - Any new regression report on latest build, or any `Move verification failed` diagnostic, immediately sets status to `INVESTIGATING`.
+
+2. **Reproduction and evidence (required)**
+   - Confirm reporter app version and macOS version.
+   - Collect issue diagnostics/logs and one local reproduction attempt.
+   - Record evidence links in the issue before any fix claim.
+
+3. **Fix execution rule**
+   - If a release gate fails, stop release work immediately.
+   - Fix root cause first.
+   - Verify fix with targeted tests and one real workflow run.
+   - Rerun full release preflight.
+   - Continue release only if preflight passes.
+
+4. **Hotfix eligibility**
+   - Hotfix allowed only when:
+     - regression is reproducible or strongly evidenced,
+     - fix has targeted test coverage,
+     - preflight passes,
+     - release notes explicitly call out affected scope and rollback plan.
+
+5. **Close policy for regression issues**
+   - Do not close on “hotfix shipped” alone.
+   - Close only after reporter confirms on latest version, or maintainer posts reproducible local verification artifact (logs/video/steps).
+
+6. **Soak policy**
+   - Standard soak: 24h between releases.
+   - If emergency release is needed, require typed manual approval phrase and written reason in release notes + ledger.
+
+7. **Post-release watch window**
+   - For first 24h: monitor GitHub/email every few hours.
+   - Any new regression in this window pauses further releases until triaged.
+
+8. **Weekly reliability review**
+   - Track: issues opened within 24h of release, regression reopen rate, unconfirmed closes, and median time-to-stable.
+   - If any metric worsens for 2 consecutive weeks, freeze non-critical feature work and run stability sprint.
+
 ## Off-Screen Menu Bar Icon After Cmd-Drag (Machine-Specific)
 
 **Updated:** 2026-02-17 | **Status:** verified | **TTL:** 30d
