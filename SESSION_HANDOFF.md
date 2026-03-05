@@ -1,102 +1,53 @@
 # Session Handoff — SaneBar
 
-**Date:** 2026-02-19 (script consolidation + docs audit)
-**Last released version:** `v2.1.7` (build `2107`)
-**Working tree:** pending commit (script cleanup + doc updates)
+**Date:** 2026-03-04
+**Last released version:** `v2.1.20` (build `2120`)
 
 ---
 
-## Update — 2026-02-21
-
-- Direct distribution release `v2.1.9` is live and verified (dist/appcast/Homebrew/GitHub).
-- GitHub release-blocking issues are closed (0 open in `sane-apps/SaneBar`).
-- App Store submission is intentionally deferred to tomorrow (`2026-02-22`) pending new screenshots and final App Store listing pass.
-
----
-
-## Current State
-
-- Script consolidation complete: ~75 scripts → ~32 active scripts.
-- Dead code removed: 41 stale SaneBar/scripts/sanemaster/ files + 4 superseded CI bash scripts.
-- Two bugs fixed in infra/scripts (mini-training-report.sh filename, mini-nightly.sh sync).
-- qa.rb rewritten to remove stale constants, refocused on actual project verification.
-- ARCHITECTURE.md updated with full Operations & Scripts Reference catalog.
-- DEVELOPMENT.md condensed and augmented with Release Process, Build Strategy, Testing sections.
-
----
-
-## What Changed
-
-### Deleted (Phase 1)
-- `SaneBar/scripts/sanemaster/` — 41 stale files (dead copy, all real modules in SaneProcess)
-- `SaneProcess/scripts/enable_tests_for_ci.sh` — replaced by `SaneMaster.rb enable_ci_tests`
-- `SaneProcess/scripts/restore_tests_after_ci.sh` — replaced by `SaneMaster.rb restore_ci_tests`
-- `SaneProcess/scripts/post_mock_generation.sh` — replaced by `SaneMaster.rb fix_mocks`
-- `SaneProcess/scripts/monitor_tests.sh` — replaced by `SaneMaster.rb monitor_tests`
-
-### Fixed (Phase 2)
-- `infra/scripts/mini-training-report.sh`: referenced `training_report.md` but file is `training_report_SaneAI.md`
-- `infra/scripts/mini-nightly.sh`: synced from source of truth (was missing Runner.app fix + SPM support)
-
-### Updated (Phases 3-4)
-- `scripts/qa.rb`: removed stale hooks/modules constants, refocused on syntax, delegation, versions, URLs
-- `ARCHITECTURE.md`: added Operations & Scripts Reference (~85 lines)
-- `DEVELOPMENT.md`: condensed Available Tools (97→~40 lines), added Release Process + Build Strategy
-
----
-
-## Verification
-
-- All .rb files pass `ruby -c` syntax check
-- All .sh files pass `bash -n` syntax check
-- All .py files pass `python3 -m py_compile`
-- `ruby scripts/qa.rb` passes (exit 0, warnings only for expected Swift import issues)
-- `./scripts/SaneMaster.rb help` lists all categories
-- `ruby scripts/SaneMaster_standalone.rb` works
-- `ruby scripts/button_map.rb`, `ruby scripts/trace_flow.rb`, `ruby scripts/marketing_screenshots.rb --list` all produce output
-- ARCHITECTURE.md: 430 lines (under 500 target)
-- DEVELOPMENT.md: 569 lines (under 600 target)
-- No CLAUDE.md references point to deleted files
-
----
-
-## GitHub Issues Status
-
-- Open issues: check with `gh issue list`
-- No new issues from this work
-
----
-
-## Active Research / Follow-ups
-
-- Serena memory `script-consolidation-audit-feb19` written with full details
-- License key SOP now referenced from ARCHITECTURE.md (was only in Serena memory before)
-- SETTINGS-INVENTORY.md has a stale backtick in a GitHub URL (pre-existing, cosmetic)
-
----
-
-## Commits Pending (3 repos)
-
-1. **SaneBar**: delete scripts/sanemaster/, update qa.rb, ARCHITECTURE.md, DEVELOPMENT.md
-2. **SaneProcess**: delete 4 dead CI scripts
-3. **infra**: fix mini-training-report.sh, sync mini-nightly.sh
-
----
-
-## Session Summary
+## Session 57 (2026-03-04 evening)
 
 ### Done
-- Consolidated ~75 scripts to ~32 by removing 45 dead files across 2 repos
-- Fixed 2 bugs in infra/scripts (wrong filename, stale copy)
-- Rewrote qa.rb to match post-consolidation reality
-- Wrote comprehensive Operations & Scripts catalog in ARCHITECTURE.md
-- Condensed and improved DEVELOPMENT.md with release, build, and testing sections
+- Checked inbox + GitHub issues post-release. No new user confirmations on v2.1.20 fixes yet.
+- **Feature requests roadmap overhaul** — `marketing/feature-requests.md` fully audited against v2.1.20 codebase:
+  - Cleared 12 shipped features to compact archive table
+  - Removed 3 rejected items (bulk icon moves, third-party overlay detection, Intel support)
+  - Added 4 new open features with verified implementation plans and breakage ratings
+- **Competitive gap analysis** — researched Ice and Bartender for features SaneBar is missing. Found 4 viable gaps:
+  1. Gradient tint (1/5 risk, ~1 day)
+  2. New icon placement control (3/5 risk, 2-3 days)
+  3. Auto-hide app menus / #103 (2/5 risk, 3-5 days) — Ice uses activation policy stealing, NO private APIs
+  4. Per-profile trigger assignment (3/5 risk, 3-5 days)
+- **Labeled GitHub #103** as `feature-request`
+- **Bernard Le Du testimonial** — verified real quote ("I use SaneBar daily." from email Feb 11, 2026). Updated website to credit "Bernard Le Du, VVMac". Removed unverified Discord quote from all files.
+- **#92 icon reset** — flowsworld returned with new finding: reset triggered when updating while MacBook disconnected from external monitor. Issue is closed but may need reopening.
+- **Email #201** — DMCA reply from Discord (`copyright@discord.com`). Needs human review — legal matter, untouched.
 
-### Docs
-- ARCHITECTURE.md: updated with full Operations & Scripts Reference
-- DEVELOPMENT.md: condensed + augmented
-- SESSION_HANDOFF.md: refreshed
+### Open GitHub Issues
+| # | Title | Status | Action Needed |
+|---|-------|--------|---------------|
+| 103 | Missing Option to Hide App Menus | Open | Feature request, labeled. Implementation plan in feature-requests.md |
+| 102 | Second Menubar not working | Open | Responded with fix (left-click setting). Awaiting confirmation |
+| 101 | Second Menu Bar not working | Open | Likely duplicate of #102 |
+| 95 | Right/Left click on icon search | Open | Asked to update to 2.1.20 |
+| 94 | Not possible to start hidden app | Open | Asked to update to 2.1.20 |
+| 93 | Can not move items to visible | Open | Asked to update to 2.1.20 |
+| 92 | Update resets icons (closed) | New comment | flowsworld: monitor-disconnect triggers reset. May need reopening |
 
-### Next
-- Commit changes across 3 repos (SaneBar, SaneProcess, infra)
-- Deploy mini-nightly.sh to Mac Mini via `deploy.sh`
+### Email Requiring Action
+- **#201** — DMCA from Discord. Legal. User must review.
+
+### Key Files Changed
+- `marketing/feature-requests.md` — full rewrite (roadmap + implementation plans)
+- `docs/index.html` — Bernard Le Du testimonial attribution updated
+- `.claude/projects/.../memory/MEMORY.md` — created with session findings
+
+### Additional Finding (late session)
+- **#92 icon position reset: ROOT CAUSE FOUND** — it's SaneBar's own `positionsNeedDisplayReset()` in `StatusBarController.swift`, not macOS. The function wipes positions when screen width changes >10%. Sparkle relaunch on different display config triggers it. No other app has this problem. Fix: per-display position backup (~30 lines, 1/5 risk). Full analysis in `marketing/feature-requests.md` and `/tmp/position_reset_research.md`.
+
+### Next Session Priorities
+1. **Fix #92 position reset** — root cause found, fix is ~30 lines in `StatusBarController.swift`, 1/5 risk. Strongest candidate for v2.1.21.
+2. Respond to any user confirmations on #93/#94/#95/#101/#102
+3. Review DMCA email #201
+4. Consider implementing gradient tint (easiest feature win, 1/5 risk)
+5. Website docs are still out of date (medium priority)

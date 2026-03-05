@@ -1,316 +1,220 @@
-# SaneBar Feature Requests
+# SaneBar Feature Requests & Roadmap
 
 > **Navigation**
 > | Session | How to Work | Releases | Testimonials |
 > |---------|-------------|----------|--------------|
 > | [../SESSION_HANDOFF.md](../SESSION_HANDOFF.md) | [../DEVELOPMENT.md](../DEVELOPMENT.md) | [../CHANGELOG.md](../CHANGELOG.md) | [testimonials.md](testimonials.md) |
 
-Tracking user-requested features from Reddit, GitHub, and support channels.
+Tracking user-requested features from GitHub, Reddit, Discord, and support emails.
 Priority based on: frequency of requests, alignment with vision, implementation effort.
 
----
-
-## High Demand Features
-
-### 1. Menu Bar Spacing Control
-**Priority: HIGH** | **Requests: 2+** | **Status: ✅ COMPLETED**
-
-| Requester | Request | Notes |
-|-----------|---------|-------|
-| u/MaxGaav | "spacing possibilities?" | Top 1% commenter badge |
-| u/Mstormer (MOD) | "compact spacing is the main reason I need a menubar manager" | r/macapps moderator |
-
-**Analysis:**
-- High ROI if we keep it purely visual and user-controlled via ⌘-dragging in the menu bar (no auto-reordering)
-- Sindre Sorhus has a separate app "Menu Bar Spacing" for this
-- Users want "all things in one app" (per MaxGaav)
-- Could differentiate SaneBar from Ice/HiddenBar
-
-**Implementation Notes:**
-- Would require injecting spacing between AXUIElements
-- May need to use different technique than current approach
-- Reference: https://sindresorhus.com/menu-bar-spacing
-
-**Implemented (Jan 11, 2026):**
-- Toggle in Advanced > System Icon Spacing ("Tighter menu bar icons")
-- Uses `NSStatusItemSpacing` + `NSStatusItemSelectionPadding` defaults (1-10 range)
-- Defaults to 4,4 - helps recover icons hidden by notch on MacBook Pro
-- Requires logout/login for changes to take effect
+**Last audited:** 2026-03-04 (v2.1.20) — all items verified against codebase.
 
 ---
 
-### 2. Find Icon Speed Improvement
-**Priority: HIGH** | **Requests: 2** | **Status: ✅ FIXED v1.0.12**
+## Open Feature Requests
 
-| Requester | Request | Notes |
-|-----------|---------|-------|
-| u/Elegant_Mobile4311 | "Find Icon function is slow to respond..." | Primary use case for them |
-| bleducnx (Discord) | "searching always takes more than 6 seconds!" | MBA M2, 19 hidden modules |
+Research completed 2026-03-04. Each feature has a verified implementation plan and breakage rating.
 
-**Fixed (v1.0.12):**
-- Instant tab switching (no reload on tab change)
-- Lazy thumbnail loading with caching
-- Fixed "beach ball" spinning cursor for users with 50+ apps
-- Cache-first open + background refresh (from v1.0.3)
+### 1. Gradient Tint (Two-Color)
+**Priority: LOW** | **Requests: 0** | **Effort: ~1 day** | **Breakage Risk: 1/5**
 
----
+Both Ice and Bartender offer gradient tints. SaneBar only has a flat color fill (line 473 of `MenuBarAppearanceService.swift`).
 
-### 3. Find Icon in Right-Click Menu
-**Priority: MEDIUM** | **Requests: 1** | **Status: Implemented**
+**Implementation (verified against codebase):**
+- Add 6 fields to `MenuBarAppearanceSettings`: `useGradientTint: Bool`, `tintColorGradient`/`tintOpacityGradient` (light), `tintColorGradientDark`/`tintOpacityGradientDark` (dark), `gradientAngle: GradientAngle` enum
+- Create one computed `tintFill: some ShapeStyle` property that returns `LinearGradient` or flat `Color`
+- Both render paths (fallback tint + Liquid Glass overlay) consume the same property
+- Settings UI: toggle + direction picker + second color/opacity row in Appearance settings
+- ~135 lines of new code across 3 files
+- Zero migration: all new fields use `decodeIfPresent` with defaults. Existing users get `useGradientTint = false` — no behavior change.
 
-| Requester | Request | Notes |
-|-----------|---------|-------|
-| u/a_tsygankov | "It would be great if it was available in the menu that appears when you right-click" | Also gave testimonial |
+**What could break:**
+- Liquid Glass + gradient overlay blending needs visual testing on macOS 26 (medium concern)
+- Reduce Transparency mode: must apply `max(opacity, 0.5)` clamp to gradient end opacity too
+- Rounded corners: gradient renders before `clipShape` — correctly cropped, verified in code
 
-**Analysis:**
-- Currently only available via Option-click or hotkey
-- Right-click menu is discoverable without documentation
-- Low effort, high usability improvement
-
-**Implementation:**
-- Add "Find Icon..." item to the right-click menu
-- Keep the menu compact (removed redundant "Toggle Hidden Items")
+**Files:** `MenuBarAppearanceService.swift`, `AppearanceSettingsView.swift`, `PersistenceService.swift`
 
 ---
 
-### 4. Custom Dividers (Visual Zones)
-**Priority: MEDIUM** | **Requests: 1** | **Status: Implemented**
+### 2. New Icon Placement Control
+**Priority: MEDIUM** | **Requests: 0** | **Effort: 2-3 days** | **Breakage Risk: 3/5**
 
-| Requester | Request | Notes |
-|-----------|---------|-------|
-| u/MaxGaav | "other dividers like vertical lines, dots and spaces?" | Top 1% commenter badge |
+Bartender lets you choose whether newly installed apps go to hidden or visible zone automatically. Every new app install currently breaks the user's clean bar.
 
-**Analysis:**
-- High ROI because it’s purely visual and user-controlled via ⌘-dragging in the menu bar (no auto-reordering)
+**Implementation (verified against codebase):**
+- SaneBar has **no persistent icon registry today**. The closest is `alwaysHiddenPinnedItemIds`. Each icon has a stable `uniqueId` (bundle ID or `bundleId::statusItem:N`).
+- **Detection:** Hook into existing `NSWorkspace.didLaunchApplicationNotification` observer in `MenuBarManager.setupObservers()` + a 30s periodic background scan for icons that appear without a launch notification (helper processes, etc.)
+- **Moving:** Reuse the existing battle-tested `moveIconAndWait()` from `MenuBarManager+IconMoving.swift`. Must follow the **shield pattern** from `enforceAlwaysHiddenPinnedItems()`: call `showAll()` → wait 300ms → scan → move → `restoreFromShowAll()`.
+- **Settings:** `NewIconPlacementPolicy` enum (`.doNothing`, `.moveToHidden`, `.moveToAlwaysHidden`), plus `knownMenuBarItemIds: Set<String>` for tracking what we've seen before.
+- New file: `MenuBarManager+NewIconPlacement.swift`
 
-**Implemented Scope:**
-- Increase divider limit (0–3 → 0–12)
-- Global divider **style**: line (—), dot (•)
-- Global divider **width** presets: Compact / Normal / Wide
+**What could break (this is the risky one):**
+- **Moving without the shield pattern** silently fails or corrupts positions — MUST use `showAll()` first
+- **System icon filtering** — Clock, Control Center, and all `com.apple.*` must be excluded via `isUnmovableSystemItem`
+- **Race with always-hidden pin enforcement** — must cancel `alwaysHiddenPinEnforcementTask` before starting (existing pattern in `moveIcon()`)
+- **False positives** — transient icons, Focus Mode extras, macOS Shortcuts menu extras. Mitigated by 2s delay after launch notification and never re-triggering for known `uniqueId`s
+- **Position pre-seeding** — orthogonal, no conflict (pre-seeding only affects SaneBar's own items)
+- **First run:** must populate `knownMenuBarItemIds` from a fresh scan on first enable, otherwise every existing icon looks "new"
 
----
-
-### 5. Secondary Menu Bar Row
-**Priority: LOW** | **Requests: 2** | **Status: Not Planned**
-
-| Requester | Request | Notes |
-|-----------|---------|-------|
-| u/MaxGaav | "a 2nd menubar below the menubar for hidden icons" | Alternative to full-width expansion |
-| bleducnx (Discord) | "secondary bar system used by Bartender, Barbee, Ice... is more efficient" | Power user with 40-50 icons |
-
-**Analysis:**
-- Significant UI/architecture change
-- Not aligned with current "clean menu bar" vision
-- Would require substantial work for unclear benefit
-- Mark as "considering" but not prioritized
+**Files:** `PersistenceService.swift`, `MenuBarManager.swift`, new `MenuBarManager+NewIconPlacement.swift`, settings UI
 
 ---
 
-### 6. Icon Groups / Organization
-**Priority: MEDIUM** | **Requests: 1** | **Status: ✅ Already Implemented**
+### 3. Auto-Hide App Menus on Overlap
+**Priority: MEDIUM** | **Requests: 1** | **Effort: 3-5 days** | **Breakage Risk: 2/5** | **GitHub: [#103](https://github.com/sane-apps/SaneBar/issues/103)**
 
-| Requester | Request | Notes |
-|-----------|---------|-------|
-| s/macenerd (Reddit) | "I'd love to have groups. I have so many icons I'll divide them up into groups to help organize them" | Jan 11, 2026 |
+| Requester | Request | Date |
+|-----------|---------|------|
+| btthle (GitHub) | "SaneBar refuses to open to show all menu bar icons... Ice has a setting that automatically hides the app menus" | Mar 2026 |
 
-**Analysis:**
-- Would allow users to categorize icons (e.g., "Social", "Dev Tools", "System")
-- Could integrate with Find Icon for filtering by group
-- Medium complexity - need UI for group management
+**How Ice does it (verified from Ice source code):**
 
-**Status (Shipped):**
-- Create custom groups in Find Icon (tabs row)
-- Drag and drop icons onto a group to assign
-- Filter icons by group
+*Detection:* Uses raw AX API to measure the app menu area:
+```
+AXUIElementCopyElementAtPosition(systemWide, displayOrigin.x, displayOrigin.y)
+→ get kAXChildrenAttribute → filter to enabled items → union their frames
+```
+Returns a rect like `(10, 0, 348, 33)` covering File/Edit/View/etc. Compare against leftmost visible status item position.
 
----
+*Hiding:* **No private APIs.** Ice exploits that macOS only shows the app menu for the frontmost app:
+```
+// Hide: steal focus → target app's menus vanish automatically
+NSRunningApplication.current.activate(from: frontApp)
+NSApp.setActivationPolicy(.regular)
 
-### 7. Third-Party Overlay Detection (Virtual Notch)
-**Priority: LOW** | **Requests: 1** | **Status: Not Planned (Edge Case)**
+// Restore: yield focus back → app menus reappear
+NSApp.yieldActivation(to: targetApp)
+NSApp.setActivationPolicy(.accessory)
+```
 
-| Requester | Request | Notes |
-|-----------|---------|-------|
-| bleducnx (Reddit) | "Atoll Dynamic Island... Alter AI assistant... aren't detected by SaneBar" | Uses 32" monitor with center overlays |
+**What SaneBar already has:**
+- Leftmost visible icon X position known via `lastKnownSeparatorRightEdgeX`
+- AX permission already granted, monitoring wired up
+- `SaneActivationPolicy` in SaneUI already handles `.regular`/`.accessory` dance
 
-**Analysis:**
-- User has apps like Atoll (Dynamic Island clone) and Alter AI (15cm overlay) in top-center
-- When revealing icons via Find Icon, they appear in original position - potentially behind the overlay
-- Very niche use case: intersection of dynamic island apps + AI overlays + many menu bar items + SaneBar
+**What could break:**
+- **CRITICAL:** If `settings.showDockIcon = true`, calling `setActivationPolicy(.accessory)` during restore would unexpectedly hide the Dock icon. Must guard against this.
+- `activate(from:)` and `yieldActivation(to:)` require macOS 14+. Need fallback for macOS 13 if supported.
+- Brief focus steal is visible — the app menu items will flash/disappear. This is inherent to the technique.
+- Some apps (Electron-based, Java) may not restore their menus cleanly after focus is yielded back.
 
-**User's Proposed Solutions:**
-1. **Secondary menu bar** - Not feasible (macOS doesn't support multiple NSStatusItem bars)
-2. **"Reveal to Front"** - When showing via Find Icon, move icon to far-right (near Control Center) where it's always accessible
+**All APIs are public.** No App Store or notarization implications. No new entitlements.
 
-**Cost-Benefit Assessment:**
-- NSStatusItem positioning is macOS-controlled; we'd be fighting the system
-- Risk of introducing positioning bugs for 99% of users to serve 0.1%
-- Recommended workaround: temporarily quit/minimize overlay apps when accessing hidden icons
-
-**Decision:** Not pursuing unless more users report similar conflicts
-
----
-
-### 8. Visual Icon Grid (No Search Required)
-**Priority: MEDIUM** | **Requests: 1** | **Status: ✅ Already Implemented**
-
-| Requester | Request | Notes |
-|-----------|---------|-------|
-| bleducnx (Discord) | "I have 19 modules... I don't know their names, but I do know their icons. The search field is completely useless." | Wants instant visual grid |
-
-**Status (Verified Jan 11, 2026):**
-- Default mode is "All" - shows ALL icons immediately
-- Search field is HIDDEN by default (`isSearchVisible = false`)
-- User sees icon grid on open, no typing required
-- Search is optional filter, toggled via magnifying glass button
-- **User likely didn't notice because:** slow cache load made it seem broken
+**Files:** New `Core/Services/AppMenuHidingService.swift`, `MenuBarManager.swift` (observer hookup), `PersistenceService.swift` (setting), settings UI
 
 ---
 
-### 9. Find Icon Move Improvements
-**Priority: MEDIUM** | **Requests: 1** | **Status: Partially Done**
+### 4. Per-Profile Trigger Assignment
+**Priority: LOW** | **Requests: 0** | **Effort: 3-5 days** | **Breakage Risk: 3/5**
 
-| Requester | Request | Notes |
-|-----------|---------|-------|
-| Internal | "Move icon is slow, should support bulk moves" | Jan 11, 2026 |
+SaneBar has profiles and triggers but they're disconnected. Bartender's triggers can activate a specific profile ("Join Work WiFi → switch to Work profile").
 
-**Implemented (Jan 11, 2026):**
-- ✅ Cursor position restored after move (no more "mouse hijacking")
-- ✅ Hidden/Visible/All tabs work correctly (separator origin fix)
+**Implementation (verified against codebase):**
+- Every trigger service holds a weak `menuBarManager` and calls `manager.showHiddenItems()` when it fires. That one-liner becomes: `if let profileId = ... { manager.activateProfile(id:) } else { manager.showHiddenItems() }`
+- `activateProfile` does a full `SaneBarSettings` replacement via `menuBarManager.settings = profile.settings`, which reactively restarts all 12+ dependent services through the existing Combine `$settings` observer.
+- Add 6 fields to settings: `batteryTriggerProfileId: UUID?`, `appLaunchTriggerProfileId: UUID?`, `networkTriggerProfileId: UUID?`, `focusModeTriggerProfileId: UUID?`, `scheduleTriggerProfileId: UUID?`, `scriptTriggerProfileId: UUID?`
+- UI: profile picker dropdown per trigger type in `RulesSettingsView`
 
-**Still Needed:**
-- **Speed optimization**: Current delays ~100ms (20+30+50ms safety margins). Could potentially reduce but risky without extensive testing.
-- **Bulk moves**: Multi-select icons and "Move All to Hidden/Visible" button. Requires UI changes (checkboxes or shift-click), loop logic, single cursor restore at end.
+**What could break (several real risks):**
+- **State wipe:** A profile is a full settings snapshot from when it was saved. If the user adds new triggers AFTER saving the profile, loading it via trigger wipes those new triggers. Fix: when loading via trigger (automated), preserve all trigger-related fields across the swap. Manual loads from UI keep the existing full-replace behavior.
+- **Circular trigger loops:** Work WiFi → load Work Profile → Work Profile has WiFi trigger → fires again → infinite loop. Fix: 5-second cooldown on `activateProfile`.
+- **Auth bypass:** Trigger must not silently load a profile that disables `requireAuthToShowHiddenIcons`. Guard: if auth is currently ON and profile would turn it OFF, fall back to `showHiddenItems()`.
+- **Deleted profile:** Profile assigned to trigger but user deletes it. `loadProfile` throws `profileNotFound`. Degrade to `showHiddenItems()`.
 
-**Complexity Assessment:**
-- Speed optimization: MEDIUM (risky to reduce timing without testing)
-- Bulk moves: HIGH (UI changes + loop logic + state management)
-
----
-
-### 10. Auto-Disable on External Monitors
-**Priority: MEDIUM** | **Requests: 1** | **Status: ✅ IMPLEMENTED v1.0.15**
-
-| Requester | Request | Notes |
-|-----------|---------|-------|
-| u/genius1soum | "I don't want SaneBar to do its job on my external monitor..." | Reddit, Jan 23 2026 |
-
-**Implemented (Jan 23, 2026):**
-- Settings → Rules → "Keep visible on external monitors"
-- Uses `CGDisplayIsBuiltin()` to detect external displays
-- Icons stay visible when on external monitor (plenty of space)
+**Files:** `PersistenceService.swift`, new `MenuBarManager+Profiles.swift`, `NetworkTriggerService.swift`, `TriggerService.swift`, `FocusModeService.swift`, `ScheduleTriggerService.swift`, `ScriptTriggerService.swift`, `RulesSettingsView.swift`
 
 ---
 
-### 11. Scroll/Click to Toggle (Hide When Visible)
-**Priority: MEDIUM** | **Requests: 1** | **Status: ✅ IMPLEMENTED**
+## Open Bugs / Investigations
 
-| Requester | Request | Notes |
-|-----------|---------|-------|
-| Rembrandt74 / Paolo (GitHub #30) | "Scroll does nothing when icons are visible" | Wants scroll to hide, not just reveal |
+### Menu Bar Tint + Reduce Transparency (GitHub #20)
+**Priority: LOW** | **Status: Deferred**
 
-**User's Pain Point:**
-Scroll/click gestures only REVEAL hidden icons. Once visible, scrolling again does nothing. User expected toggle behavior (scroll to show, scroll again to hide).
+Tint overlay doesn't render when macOS "Reduce Transparency" is enabled. Reported on M4 Macs. Ice's tint works on same hardware.
 
-**Implemented (Jan 23, 2026):**
-- New setting: `gestureToggles` (default: false, preserves existing behavior)
-- When enabled, scroll/click in menu bar toggles visibility
-- Hover remains reveal-only (toggling on hover would be annoying)
-- Located in Settings → Rules → Revealing → "Also hide when visible"
+**Research (Jan 2026):** SaneBar uses SwiftUI compositor blending; Ice uses AppKit `NSView.draw()` with Core Graphics. Unclear why one works and the other doesn't.
 
-**Related Request (NOW IMPLEMENTED):**
-- Suspend auto-hide during ⌘+drag rearranging → See Ice-Compatible Features below
+**Decision:** Deferred. No new reports. Revisit if more users hit this.
 
 ---
 
-### 12. Ice-Compatible Features (Migration from Ice)
-**Priority: HIGH** | **Requests: Multiple** | **Status: ✅ IMPLEMENTED**
+### Icon Positions Reset on Update (GitHub #92)
+**Priority: HIGH** | **Status: Root cause found** | **Breakage Risk: 1/5**
 
-| Feature | Ice Setting | SaneBar Setting | Notes |
-|---------|-------------|-----------------|-------|
-| Directional Scroll | up=show, down=hide | `useDirectionalScroll` | Only when toggle mode disabled |
-| Show on User Drag | `showAllSectionsOnUserDrag` | `showOnUserDrag` | Reveal all icons during ⌘+drag |
-| Rehide on App Change | `focusedApp` strategy | `rehideOnAppChange` | Auto-hide when switching apps |
+User `flowsworld` reports icon positions reset when updating SaneBar while MacBook is disconnected from external monitor. 3+ occurrences (v2.1.12, v2.1.14, v2.1.18→2.1.20).
 
-**Implemented (Jan 23, 2026):**
-- **Directional Scroll** (`useDirectionalScroll`): When enabled, scroll up shows icons, scroll down hides them (Ice-style). Mutually exclusive with gesture toggle mode.
-- **Show When Rearranging** (`showOnUserDrag`): When user ⌘+drags to rearrange menu bar icons, all hidden icons are revealed until drag ends. Enabled by default.
-- **Hide When App Changes** (`rehideOnAppChange`): Auto-hides icons when you switch to a different app (Ice's "focusedApp" rehide strategy).
+**Root cause (verified in code):** This is SaneBar's own bug, NOT macOS behavior. `positionsNeedDisplayReset()` in `StatusBarController.swift` actively wipes positions when screen width changes by >10%. The sequence:
+1. User runs on external monitor (2560px). Width stored in `SaneBar_CalibratedScreenWidth`.
+2. Sparkle updates, relaunches on laptop-only (1440px). Width delta = 43% → exceeds 10% threshold.
+3. `resetPositionsToOrdinals()` wipes separator to ordinal 1 (right edge). Hidden zone gone.
+4. User reconnects monitor. Ordinal positions stay. All icons now visible.
 
-**UI Location:** Settings → Rules
-- "Scroll direction matters" (under Revealing, conditional)
-- "Show when rearranging icons" (under Revealing)
-- "Hide when app changes" (under Hiding Behavior)
+**No other app has this problem.** Ice, Bartender, Dozer all trust macOS persistence — macOS never deletes `NSStatusItem Preferred Position` keys on display change (only on `removeStatusItem()` or `isVisible = false`).
 
----
-
-## Bug Reports / UX Issues
-
-### 1. Menu Bar Tint Not Working on M4 Macs
-**Priority: HIGH** | **Status: Open (GitHub #20)**
-
-| Requester | Environment | Notes |
-|-----------|-------------|-------|
-| Reddit user | M4 Air, dark mode | Tint flashes on boot only |
-| MaxGave (GitHub) | M4, Sequoia, normal mode | No tint at all, toggle doesn't help |
-| u/digger27410 (Reddit) | M4 Air, Tahoe 26.2, dark mode, Reduce Transparency ON | Height changes but color doesn't; Ice works |
-
-**Key Finding (Jan 16, 2026):**
-- Toggle causes bar HEIGHT to increase slightly, but color doesn't change
-- Ice's tint works on same hardware → different implementation technique needed
-- Possible causes: Reduce Transparency setting, M4 GPU/display stack incompatibility
-
-**Action:** Investigate how Ice implements tint overlay vs our approach.
+**Fix: Per-display position backup (~30-40 lines in `StatusBarController.swift`)**
+- Before reset fires, save current pixel positions keyed by screen width: `SaneBar_Position_Backup_{width}_main`, `SaneBar_Position_Backup_{width}_separator`
+- On return to a previously-seen display width, restore from backup instead of resetting to ordinals
+- If no backup exists for the new width, behavior unchanged (ordinal re-seed)
+- Backward compatible. No migration needed.
 
 ---
 
-### 2. Global Shortcut Conflicts
-**Priority: HIGH** | **Status: Fixed (v1.0.3)**
+### Website Documentation Out of Date
+**Priority: MEDIUM** | **Status: Open**
 
-| Requester | Issue | Notes |
-|-----------|-------|-------|
-| u/a_tsygankov | "cmd + , for 'Open settings' overrides all other apps" | Should disable by default |
-
-**Fixed:**
-- Changed Find Icon shortcut from `⌘Space` to `⌘⇧Space` to avoid Spotlight conflict
-- Settings shortcut `⌘,` is app-specific (only works when SaneBar menu is open)
+sanebar.com doesn't document many current features (notch-awareness, Browse Icons, visual zones, triggers, second menu bar, etc.). User `maddada_` (Discord) couldn't find docs for notch feature.
 
 ---
 
-### 2. Website Documentation Out of Date
-**Priority: HIGH** | **Status: Needs Update**
+## Shipped Features (Archive)
 
-| Requester | Issue | Notes |
-|-----------|-------|-------|
-| maddada_ (Discord) | "May I know how it works please? I can't find anything about this on the website" | Asking about notch feature |
+All verified in codebase as of v2.1.20.
 
-**Action Required:**
-- Update sanebar.com with current feature documentation
-- Add notch-awareness explanation
-- Add Find Icon documentation
-- Add Visual Zones documentation
+| Feature | Shipped | Tier | Requested By |
+|---------|---------|------|-------------|
+| Menu Bar Spacing Control | v1.0.14 (Jan 2026) | Pro | u/MaxGaav, u/Mstormer |
+| Find Icon Speed Improvement | v1.0.12 | Free | u/Elegant_Mobile4311, bleducnx |
+| Find Icon in Right-Click Menu | v1.0.x | Pro | u/a_tsygankov |
+| Custom Dividers / Visual Zones | v1.0.x | Pro (extras) | u/MaxGaav |
+| Secondary Menu Bar | v2.x | Pro | u/MaxGaav, bleducnx |
+| Icon Groups | v2.x | Pro | macenerd (Reddit) |
+| Visual Icon Grid | v1.0.x | Free | bleducnx |
+| Auto-Disable on External Monitors | v1.0.15 (Jan 2026) | Pro | u/genius1soum |
+| Scroll/Click Toggle | v1.0.x | Pro | Rembrandt74 / Paolo (#30) |
+| Ice-Compatible Features | v1.0.x (Jan 2026) | Mixed | Multiple |
+| Global Shortcut Conflict Fix | v1.0.3 | Free | u/a_tsygankov |
+| Cmd+Drag Reveal | v1.0.x | Free | Multiple |
+
+### Additional Features Shipped (Not Originally Requested)
+
+These were built proactively, not from user requests:
+
+| Feature | Tier | Description |
+|---------|------|-------------|
+| Always-Hidden Zone | Pro | Third zone for icons that should never appear |
+| Per-Icon Hotkeys | Pro | Global keyboard shortcut per icon |
+| Advanced Triggers | Pro | Battery, Wi-Fi, Focus Mode, app launch, schedule, shell script |
+| Hover Trigger | Free | Show icons on mouse hover near top edge |
+| Touch ID / Password Protection | Pro | Biometric auth to reveal hidden icons |
+| Settings Profiles | Pro | Save/restore named configurations |
+| Bartender & Ice Import | Pro | Migrate settings from competitors |
+| Custom Menu Bar Icon | Pro | User-uploaded icon image |
+| Liquid Glass Overlay | Pro | macOS 26+ Liquid Glass material over menu bar |
+| AppleScript Automation | Pro | Scriptable commands for power users |
+| Space Analyzer | Free | Debug tool showing menu bar space utilization |
 
 ---
 
-### 3. Auto-Hide Window Stacking Issue
-**Priority: MEDIUM** | **Status: Needs Investigation**
+## Sources
 
-| Requester | Issue | Notes |
-|-----------|-------|-------|
-| u/JustABro_2321 | "when hiddenbar collapses, it buries the menubar app's settings window to the back" | Comparing to HiddenBar bug |
-
-**Investigation:**
-- Does SaneBar have this same issue?
-- If auto-hide triggers while interacting with a menu bar app popup, does it bury the window?
-- May need "smart" detection of active interactions
-
----
-
-## Feature Request Sources
-
-| Source | Link | Date Checked |
-|--------|------|--------------|
-| Reddit r/macapps | Launch thread | Jan 2026 |
-| GitHub Issues | (check weekly) | - |
+| Source | How to Check | Last Checked |
+|--------|-------------|--------------|
+| GitHub Issues | `gh issue list` | Mar 4, 2026 |
+| Reddit r/macapps | Search "SaneBar" | Jan 2026 |
+| Discord | Manual check | Jan 2026 |
+| Support email | `check-inbox.sh check` | Mar 4, 2026 |
 
 ---
 
@@ -318,104 +222,21 @@ Scroll/click gestures only REVEAL hidden icons. Once visible, scrolling again do
 
 | Date | Feature | Decision | Rationale |
 |------|---------|----------|-----------|
-| Jan 2026 | Menu Bar Spacing | ✅ Implemented | High demand, notch-friendly defaults recover hidden icons |
-| Jan 2026 | Visual Zones (Dividers) | Implemented | Low effort, high reliability, high user ROI |
-| Jan 2026 | Secondary Menu Bar | Deprioritized | Architectural complexity, unclear demand |
+| Jan 2026 | Menu Bar Spacing | Shipped | High demand, notch recovery |
+| Jan 2026 | Visual Zones | Shipped | Low effort, high ROI |
+| Jan 2026 | Ice-Compatible Features | Shipped | Migration path for Ice users |
+| Jan 2026 | Secondary Menu Bar | Initially deprioritized | Later shipped in v2.x |
+| Jan 2026 | Third-Party Overlay Detection | Rejected | Too niche, NSStatusItem positioning is macOS-controlled |
+| Jan 2026 | Intel Support | Rejected | Dead platform, no test hardware |
+| Mar 2026 | Bulk Icon Moves | Rejected | Fragile AXUIElement batch ops, no external demand |
+| Mar 2026 | Auto-Hide App Menus (#103) | Investigating | Ice has it, need API research |
 
 ---
 
-## Next Steps
-
-1. **Immediate (v1.0.x)**
-   - [x] Fix shortcut conflict (changed to `⌘⇧Space`)
-   - [x] Add Find Icon to right-click menu
-   - [x] Improve Find Icon performance (cache pre-warming)
-   - [ ] Further optimize Find Icon (still slow for some users)
-   - [ ] Update website documentation
-
-2. **Short Term (v1.1)**
-   - [x] Spacing control (System Icon Spacing toggle)
-   - [ ] Research auto-hide interaction detection
-   - [x] Implement visual zones (custom dividers/spacers)
-   - [ ] Icon Groups feature
-   - [ ] Visual icon grid (instant display without search)
-
-3. **Evaluate Later**
-   - Secondary menu bar row
-   - Third-party overlay detection (Atoll, etc.)
-   - Reduce Transparency compatibility for tint (see Issue #20)
-
----
-
-## Testimonials (Jan 2026)
+## Testimonials
 
 | User | Quote | Source |
 |------|-------|--------|
-| ujc-cjw | "Finally, a replacement app has arrived—I'm so glad! It's been working perfectly so far." | Reddit r/macapps |
-| bleducnx | "The product is very stable and offers a wide range of options." | Discord |
+| ujc-cjw | "Finally, a replacement app has arrived — I'm so glad! It's been working perfectly so far." | Reddit r/macapps |
+| Bernard Le Du, VVMac | "I use SaneBar daily." | Email (Feb 11, 2026) |
 | u/a_tsygankov | "I really like that I can adjust SaneBar's behavior with AppleScript" | Reddit r/macapps |
-
----
-
-## Technical Investigations
-
-### Reduce Transparency Compatibility (Issue #20)
-**Priority: LOW** | **Status: Deferred**
-
-**Problem:** Menu bar tint doesn't work when macOS "Reduce Transparency" is enabled (System Settings → Accessibility → Display).
-
-**Reports:** M4 MacBook Air users report tint flashes on boot but doesn't persist. Confirmed working on M4 with Reduce Transparency OFF.
-
-**Research (Jan 17, 2026):**
-- SaneBar uses SwiftUI `Rectangle().fill(Color.opacity())` - relies on compositor blending
-- Ice uses AppKit `NSView.draw()` with `NSColor.setFill(); rect.fill()` - Core Graphics direct drawing
-- Ice also uses different window styleMask: `.fullSizeContentView, .nonactivatingPanel`
-- Both approaches use alpha values, so unclear why Ice would work if we don't
-
-**Fix Options:**
-1. Quick test: Add `.fullSizeContentView, .nonactivatingPanel` to window styleMask
-2. Full port: Rewrite `MenuBarOverlayView` as `NSView` subclass with `draw(_:)` override (2-4 hours, risk of new bugs)
-
-**Decision:** Defer until we confirm users actually need Reduce Transparency ON. Not worth the regression risk for an edge case.
-
----
-
-## Tools Mentioned by Users
-
-| Tool | Purpose | Notes |
-|------|---------|-------|
-| TighterMenubar | Menu bar spacing | Free, https://github.com/vanja-ivancevic/TighterMenubar |
-| Menu Bar Spacing | Menu bar spacing | By Sindre Sorhus |
-| Atoll | Dynamic Island clone | Third-party overlay that users want detected |
-| Alter AI | AI assistant | Sits in top-center, users want detected |
-
----
-
-## Platform Support Requests
-
-### Intel (x86_64) Support
-**Priority: LOW** | **Requests: 1** | **Status: Not Planned (No Test Hardware)**
-
-| Requester | Request | Notes |
-|-----------|---------|-------|
-| Comfortable-Arm4656 (Reddit) | "bad CPU type in executable" | Hackintosh user, Jan 2026 |
-
-**Error:**
-```
-zsh: bad CPU type in executable: sanebar.app/Contents/macOS/sanebar
-```
-
-**Analysis:**
-- SaneBar is ARM64-only (Apple Silicon)
-- User has Intel x86_64 CPU (Hackintosh)
-- Would require Universal Binary build (arm64 + x86_64)
-
-**Cost-Benefit Assessment:**
-- **Technical difficulty:** Low (one-line config change: `arch: [arm64, x86_64]`)
-- **Testing difficulty:** High (no Intel hardware available)
-- **Maintenance burden:** Medium-High (ongoing dual-architecture testing)
-- **User base:** Shrinking (Intel Macs phased out since 2020, Hackintosh is unsupported niche)
-
-**Decision:** Not pursuing without Intel test hardware. Community contribution welcome - user could build locally with Claude Code and submit PR if successful.
-
-**Response sent to user:** Invited them to try building with Claude Code on their machine and submit changes if it works
