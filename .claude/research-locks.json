@@ -1,0 +1,180 @@
+[
+  {
+    "slug": "sanebar-browse-ux",
+    "reason": "Repeated Browse Icons / Second Menu Bar confusion reports. Fresh Apple docs, competitor UX, GitHub, and local research required before more changes.",
+    "created_at": "2026-03-10T00:17:00Z",
+    "source_updated_at": "2026-03-10T00:17:00Z",
+    "source": "issue-cluster-sync",
+    "app": "SaneBar",
+    "threshold": 3,
+    "match_count": 22,
+    "matches": [
+      {
+        "kind": "email",
+        "id": 216,
+        "subject": "[sane-apps/SaneBar] Not possible to start any hidden app and can not move them to visible (Issue #94)",
+        "created_at": "2026-03-05 13:41:07"
+      },
+      {
+        "kind": "email",
+        "id": 167,
+        "subject": "Sanebar installer problem v2.1.11",
+        "created_at": "2026-03-01 04:59:21"
+      },
+      {
+        "kind": "email",
+        "id": 102,
+        "subject": "Browse Icons Second Menu Bar Extremely Buggy",
+        "created_at": "2026-02-23 16:26:34"
+      },
+      {
+        "kind": "email",
+        "id": 67,
+        "subject": "Icon not configurable by SaneBar",
+        "created_at": "2026-02-18 20:32:18"
+      },
+      {
+        "kind": "email",
+        "id": 53,
+        "subject": "Re[2]: Problems in sanebar 1.0.23 (following)",
+        "created_at": "2026-02-17 01:18:09"
+      },
+      {
+        "kind": "github",
+        "id": 109,
+        "title": "Icons in the Browse Icons.. view are not matching what is pr",
+        "state": "OPEN",
+        "updated_at": "2026-03-10T00:17:00Z"
+      },
+      {
+        "kind": "github",
+        "id": 108,
+        "title": "well it\u2019s not showing my menu bar apps",
+        "state": "OPEN",
+        "updated_at": "2026-03-09T23:47:33Z"
+      },
+      {
+        "kind": "github",
+        "id": 106,
+        "title": "from \u2018Browse icons\u2019, nothing is working re: dragging around",
+        "state": "OPEN",
+        "updated_at": "2026-03-07T00:44:19Z"
+      },
+      {
+        "kind": "github",
+        "id": 105,
+        "title": "Second Menu Bar unresponsive. One app (Klack)\u2019s menu bar ico",
+        "state": "CLOSED",
+        "updated_at": "2026-03-07T18:14:24Z"
+      },
+      {
+        "kind": "github",
+        "id": 103,
+        "title": "[Bug]: Missing Option to Hide App Menus in Menu Bar",
+        "state": "CLOSED",
+        "updated_at": "2026-03-06T21:17:33Z"
+      },
+      {
+        "kind": "github",
+        "id": 101,
+        "title": "Second Menu Bar is not working.",
+        "state": "OPEN",
+        "updated_at": "2026-03-07T00:58:05Z"
+      },
+      {
+        "kind": "github",
+        "id": 87,
+        "title": "Browse Icons in second menu bar issues.",
+        "state": "CLOSED",
+        "updated_at": "2026-02-25T20:15:35Z"
+      }
+    ]
+  },
+  {
+    "slug": "sanebar-browse-move",
+    "reason": "Repeated icon move / visibility mismatch reports. Fresh runtime research is required before more fixes in this cluster.",
+    "created_at": "2026-03-10T00:17:00Z",
+    "source_updated_at": "2026-03-10T00:17:00Z",
+    "source": "issue-cluster-sync",
+    "app": "SaneBar",
+    "threshold": 3,
+    "match_count": 25,
+    "matches": [
+      {
+        "kind": "email",
+        "id": 263,
+        "subject": "2.1.24 sanebar",
+        "created_at": "2026-03-09 09:51:03"
+      },
+      {
+        "kind": "email",
+        "id": 216,
+        "subject": "[sane-apps/SaneBar] Not possible to start any hidden app and can not move them to visible (Issue #94)",
+        "created_at": "2026-03-05 13:41:07"
+      },
+      {
+        "kind": "email",
+        "id": 212,
+        "subject": "Sanebar installer problem v2.1.11",
+        "created_at": "2026-03-05 07:31:29"
+      },
+      {
+        "kind": "email",
+        "id": 167,
+        "subject": "Sanebar installer problem v2.1.11",
+        "created_at": "2026-03-01 04:59:21"
+      },
+      {
+        "kind": "email",
+        "id": 164,
+        "subject": "Adding items to visible fails",
+        "created_at": "2026-02-28 11:06:41"
+      },
+      {
+        "kind": "email",
+        "id": 131,
+        "subject": "Issue with Sanebar",
+        "created_at": "2026-02-26 08:28:20"
+      },
+      {
+        "kind": "email",
+        "id": 77,
+        "subject": "SaneBar suggestion after 2.1.7",
+        "created_at": "2026-02-20 09:48:52"
+      },
+      {
+        "kind": "email",
+        "id": 63,
+        "subject": "Re: SaneBar suggestion after starting using it",
+        "created_at": "2026-02-18 07:49:44"
+      },
+      {
+        "kind": "email",
+        "id": 59,
+        "subject": "SaneBar",
+        "created_at": "2026-02-17 08:11:35"
+      },
+      {
+        "kind": "github",
+        "id": 109,
+        "title": "Icons in the Browse Icons.. view are not matching what is pr",
+        "state": "OPEN",
+        "updated_at": "2026-03-10T00:17:00Z"
+      },
+      {
+        "kind": "github",
+        "id": 106,
+        "title": "from \u2018Browse icons\u2019, nothing is working re: dragging around",
+        "state": "OPEN",
+        "updated_at": "2026-03-07T00:44:19Z"
+      },
+      {
+        "kind": "github",
+        "id": 101,
+        "title": "Second Menu Bar is not working.",
+        "state": "OPEN",
+        "updated_at": "2026-03-07T00:58:05Z"
+      }
+    ]
+  }
+]

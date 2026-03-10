@@ -49,10 +49,10 @@ launches:
     notes: "47k star repo. All 5 apps merged (PRs #1007-1011)."
 
   - platform: "awesome-macOS"
-    url: "https://github.com/iCHAIT/awesome-macOS/pull/696"
+    url: "https://github.com/iCHAIT/awesome-macOS/pull/710"
     date: "2026-02-20"
-    status: "submitted"
-    notes: "17.8k star repo. PR #696 (SaneBar). Individual PRs per guidelines."
+    status: "open"
+    notes: "17.8k star repo. Old combined/early PRs (#689, #696) were closed. Replacement one-app PRs are open: SaneBar #710, SaneClick #711, SaneClip #712, SaneHosts #713."
 
   - platform: "PayOnce.tools"
     url: "https://www.payonce.tools/tools/sanebar"

@@ -1,5 +1,59 @@
 # SaneBar Research Cache
 
+## Browse Mismatch Gate (Confusion vs Real Bug) + WindowServer Multi-Item Fallback
+
+**Updated:** 2026-03-10 | **Status:** verified | **TTL:** 7d
+**Source:** Apple docs (`CGWindowListCopyWindowInfo`, `AXUIElementCopyElementAtPosition`), web/GitHub competitor references (`jordanbaird/Ice` README + Tahoe release notes), SaneBar GitHub issues `#108` / `#109` / `#102`, inbox threads `#274` / `#279`, local screenshot review, local code
+
+### Verified Findings
+
+1. **Not every Browse/Second Menu Bar report is a code bug.**
+   - Email `#274` and GitHub `#102` are largely configuration/expectation mismatches.
+   - In the screenshot for `#274`, Browse Icons is set to `Second Menu Bar`, but `Left-click SaneBar icon` is still set to `Toggle Hidden`.
+   - That means the customer expectation ("click opens second menu bar") does not match the configured behavior.
+
+2. **`#108` is a real undercount bug, not customer confusion.**
+   - Screenshot shows many visible menu bar items.
+   - Diagnostics say SaneBar found `32` menu bar items (`25 hidden`) but the second menu bar only rendered `visible=4 hidden=7`.
+   - Logs explicitly showed `classifyItems: filtered 21 coarse fallback item(s) from zoned views`.
+   - This confirms a real browse/render mismatch in the data pipeline, not just misunderstanding.
+
+3. **`#109` is a separate real bug family: move failure plus browse mismatch.**
+   - Diagnostics show repeated `Move verification failed` errors for move-to-visible attempts.
+   - The same report also showed heavy fallback filtering (`filtered 26 coarse fallback item(s)`), so two bugs can coexist:
+     - browse data undercount
+     - move verification / separator boundary failure
+
+4. **WindowServer fallback was too lossy for AX-poor apps.**
+   - `CGWindowListCopyWindowInfo` returns window records, not one canonical owner record per process.
+   - SaneBar’s `windowBackedMenuBarItems(fromWindowInfos:candidatePIDs:)` was collapsing multiple compact top-bar windows for the same PID down to a single right-most frame.
+   - That can undercount helper-hosted or AX-poor menu bar items before they ever reach Browse/Second Menu Bar classification.
+
+5. **Preserving multiple fallback windows per PID is compatible with the current click-resolution model.**
+   - `SearchService.resolveLatestClickTarget` already falls back from exact identity to nearest same-bundle position.
+   - `AccessibilityService.resolvedTargetStatusItem` already uses nearest-center fallback when identifiers drift or are missing.
+   - That means synthetic per-PID ordering for fallback-only windows is safer than collapsing them to one bundle-level entry.
+
+6. **Competitor evidence says this is a real class of Tahoe/menu-bar-manager bugs.**
+   - Ice publicly advertises both:
+     - separate bar for hidden items
+     - drag/drop arrangement
+   - Ice Tahoe release notes also call out:
+     - item movement becoming sluggish / failing intermittently
+     - search showing incorrect names and app icons
+     - temporarily shown items returning to wrong positions
+   - This is useful because it confirms these failures are not just support confusion; they are common failure surfaces for this app category.
+
+7. **The Russian runaway report (`#279`) is severe but still under-instrumented.**
+   - We reviewed the attached screenshot.
+   - It proves:
+     - `/Applications/SaneBar.app/Contents/MacOS/SaneBar`
+     - `100%` CPU
+     - `14.04 GB` physical memory
+     - `9` crashes
+   - It does **not** include in-app diagnostics, crash logs, repro steps, or a sample/spindump.
+   - Conclusion: severity is verified, root cause is not.
+
 ## Accessibility Loop + Startup Rehide Regression (Signature + Startup Gate)
 
 **Updated:** 2026-02-28 | **Status:** verified | **TTL:** 30d  
