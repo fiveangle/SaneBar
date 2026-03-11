@@ -1,8 +1,49 @@
 # SaneBar Research Cache
 
+## Second Menu Bar Idle-Close Race (#101)
+
+**Updated:** 2026-03-11 | **Status:** verified | **TTL:** 7d
+**Source:** Apple docs (`NSWorkspace.didActivateApplicationNotification`, cooperative activation article), web/Bartender release notes, GitHub issue `#101`, local code
+
+### Verified Findings
+
+1. **The current `#101` failure is not the old false-success click path.**
+   - Fresh `2.1.25` diagnostics show `preferHardwareFirst=false`, `accepted=true`, and `verification=verified (windowServerWindowCount 0->1)`.
+   - That means the click path is getting a real post-click reaction before the user-visible failure happens.
+
+2. **The stronger local bug is a second-menu-bar idle-close race.**
+   - `SearchWindowController.schedulePanelIdleCloseIfNeeded(for:)` hard-closes the second menu bar after `20s`.
+   - The timer is only scheduled on panel show and was not refreshed by interaction.
+   - In `#101`, `secondMenuBar.showRequestedAt=19:06:18.774` and `lastActivation.startedAt=19:06:37.955`, so activation started about `19.2s` after panel open.
+   - The click attempt itself took `1767ms`, which means the panel idle-close could fire during click verification.
+
+3. **The user symptom matches the code path exactly.**
+   - Reporter says the app menu opens after a delay and then disappears while moving the mouse over it.
+   - If the panel closes at that moment, `handleBrowseDismissal(reason:)` clears `isBrowseSessionActive` and can schedule rehide.
+   - That explains both the disappearing menu and the “real menu bar icons suddenly reveal/collapse” symptom.
+
+4. **Apple’s activation docs support treating this as a lifecycle/activation coordination bug, not a target-resolution bug.**
+   - `NSWorkspace.didActivateApplicationNotification` fires with the activated app in `userInfo`, which SaneBar currently uses to schedule app-change rehide.
+   - Apple’s cooperative activation guidance says activation is context-sensitive and should not be treated as a guaranteed, stable end-state the moment focus changes.
+   - That means tying rehide/panel teardown too aggressively to activation transitions is risky.
+
+5. **Low-risk fix direction is to protect the panel during activation instead of rewriting click targeting again.**
+   - Refresh the panel idle-close timer on second-menu-bar interaction.
+   - Defer idle-close while browse activation is in flight and for a short grace period after it finishes.
+   - When the panel does dismiss, ensure any rehide delay respects the same short activation grace window.
+
+6. **Current-tree hardening now refreshes the idle-close budget on actual second-menu-bar interaction.**
+   - `SearchWindowController.noteSecondMenuBarInteraction()` now reschedules the second-menu-bar idle-close timer while the panel is visible.
+   - `SecondMenuBarView` now calls that hook from real interaction paths:
+     - search text changes
+     - row hover
+     - tile hover/click/context-menu actions
+     - move and drop handlers
+   - That keeps a long-lived panel from aging out exactly as the user starts a click or move sequence.
+
 ## Browse Mismatch Gate (Confusion vs Real Bug) + WindowServer Multi-Item Fallback
 
-**Updated:** 2026-03-10 | **Status:** verified | **TTL:** 7d
+**Updated:** 2026-03-11 | **Status:** verified | **TTL:** 7d
 **Source:** Apple docs (`CGWindowListCopyWindowInfo`, `AXUIElementCopyElementAtPosition`), web/GitHub competitor references (`jordanbaird/Ice` README + Tahoe release notes), SaneBar GitHub issues `#108` / `#109` / `#102`, inbox threads `#274` / `#279`, local screenshot review, local code
 
 ### Verified Findings
@@ -18,11 +59,10 @@
    - Logs explicitly showed `classifyItems: filtered 21 coarse fallback item(s) from zoned views`.
    - This confirms a real browse/render mismatch in the data pipeline, not just misunderstanding.
 
-3. **`#109` is a separate real bug family: move failure plus browse mismatch.**
-   - Diagnostics show repeated `Move verification failed` errors for move-to-visible attempts.
-   - The same report also showed heavy fallback filtering (`filtered 26 coarse fallback item(s)`), so two bugs can coexist:
-     - browse data undercount
-     - move verification / separator boundary failure
+3. **`#109` is now the canonical live Browse/move thread.**
+   - The March 10 `2.1.25` follow-up narrowed the remaining failure to repeated `performCmdDrag(...): from point (..., 1) is off-screen — aborting`.
+   - That is a stronger current repro than the older `#106` report, so `#106` can be closed as superseded while `#109` stays open for current verification.
+   - The same thread still showed earlier fallback filtering (`filtered 26 coarse fallback item(s)`), so browse undercount and move failure can still coexist.
 
 4. **WindowServer fallback was too lossy for AX-poor apps.**
    - `CGWindowListCopyWindowInfo` returns window records, not one canonical owner record per process.
@@ -53,6 +93,74 @@
      - `9` crashes
    - It does **not** include in-app diagnostics, crash logs, repro steps, or a sample/spindump.
    - Conclusion: severity is verified, root cause is not.
+
+## External-Monitor Startup Order Drift (Mini live state)
+
+**Updated:** 2026-03-10 | **Status:** verified | **TTL:** 7d
+**Source:** Apple docs (`NSStatusItem`, WindowServer scene behavior via AppKit status bar APIs), competitor/web references (Ice menu bar positioning discussions), SaneBar GitHub issues `#106` / `#109`, local Mini live layout snapshot + defaults state
+
+### Fresh Findings
+
+1. **Mini currently shows a real wrong-slot placement on the external 1920-wide display.**
+   - Live `layout snapshot` from the running signed app on Mini reported:
+     - `screenWidth=1920`
+     - `separatorOriginX=956`
+     - `mainIconLeftEdgeX=976`
+     - `mainRightGap=944`
+     - `isOnExternalMonitor=true`
+   - That is far too far left for SaneBar’s main icon on a healthy single-row right-edge layout.
+
+2. **The saved positions are not obviously corrupt huge pixel values.**
+   - Mini app defaults currently store:
+     - `NSStatusItem Preferred Position SaneBar_Main_v16 = 194`
+     - `NSStatusItem Preferred Position SaneBar_Separator_v16 = 228`
+     - width-bucket backups for `1920` with the same values
+   - This means the failure is not limited to the older “wild pixel value” corruption class.
+
+3. **Current startup-recovery detection should classify this state as bad if it sees the same geometry at launch.**
+   - `MenuBarManager.shouldRecoverStartupPositions(...)` would treat `mainRightGap=944` on a `1920` display as out of bounds because the allowed gap caps around `268`.
+   - Therefore, if the app still launches into this exact geometry, the recovery branch should fire.
+
+4. **That implies one of two live possibilities.**
+   - The app launched wrong and the startup recovery branch did not run.
+   - Or the app launched acceptably and later drifted left after scene reconnect / relayout churn.
+
+5. **Local system logs show repeated status-item scene churn on Mini even after launch.**
+   - Recent `log show` output for the running app includes repeated FrontBoard scene reconnects and `NSStatusItemClearAutosaveStateAction` traffic around Control Center status-item scenes.
+   - This raises the risk that position drift can happen after startup, not just during the initial creation path.
+
+6. **GitHub evidence on the same external-monitor class lines up with the Mini symptom.**
+   - `#106` and `#109` both show external-monitor layouts where SaneBar is too far left and drag/click targeting becomes wrong because geometry is no longer near the Control Center side.
+   - This is consistent with a stale order/runtime drift family, not just one bad user-defaults value.
+
+7. **Fresh relaunch and post-smoke verification on Mini stayed healthy.**
+   - After a clean relaunch of `/Applications/SaneBar.app`, live `layout snapshot` reported:
+     - `separatorOriginX=1625`
+     - `mainIconLeftEdgeX=1655`
+     - `mainRightGap=265`
+     - `mainNearControlCenter=true`
+   - After a full `live_zone_smoke.rb` pass, the layout remained healthy (`separatorOriginX=1619`, `mainRightGap=265`).
+   - Conclusion: the currently observed bug is **not** "every launch starts wrong." It is an intermittent runtime drift.
+
+8. **The most likely mechanism is stale separator fallback during status-item scene churn.**
+   - Local logs included:
+     - `getSeparatorOriginX: blocking mode with empty cache, using estimated 956.000000`
+   - That estimated `956` value matches the bad left-drifted Mini snapshot.
+   - This strongly suggests the bad state comes from SaneBar losing trustworthy separator geometry during a WindowServer / Control Center scene reconnect and falling back to an estimate that lands too far left.
+
+9. **The old runtime validator missed this class because it only checked attachment, not geometry.**
+   - `schedulePositionValidation()` previously only called `StatusBarController.validateStartupItems(...)`.
+   - That catches "status item fell off the menu bar" but not "status item is still attached in the wrong slot."
+
+10. **Low-risk fix applied: runtime validation now reuses startup geometry sanity checks and reruns after screen changes.**
+   - `MenuBarManager.schedulePositionValidation()` now calls a geometry-aware `statusItemsNeedRecovery()` helper.
+   - That helper combines:
+     - attached-window validation
+     - separator/main ordering
+     - right-edge gap
+     - notch-safe boundary
+   - `NSApplication.didChangeScreenParametersNotification` now reschedules position validation after cache invalidation.
+   - Verified by test suite (`541 tests in 42 suites`) and by fresh Mini launch staying in the healthy right-side slot.
 
 ## Accessibility Loop + Startup Rehide Regression (Signature + Startup Gate)
 
