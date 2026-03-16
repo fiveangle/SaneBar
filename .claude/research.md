@@ -1454,3 +1454,44 @@ After applying fix:
 - The remaining gap is not a generic SaneBar move/startup bug.
 - It is a host-model / OS-exposure problem where macOS is not giving SaneBar a normal menu-extra identity to act on.
 - Safe release stance: keep Little Snitch as a known edge case unless a future fix can prove a precise, stable identity without broad host/window heuristics that could destabilize normal apps.
+
+---
+
+## Release Smoke Fixture Audit
+
+**Updated:** 2026-03-16 16:50 ET | **Status:** verified on mini | **TTL:** 7d
+**Sources:** mini `./scripts/SaneMaster.rb verify --quiet`, direct `./scripts/live_zone_smoke.rb`, routed `./scripts/SaneMaster.rb release_preflight`, live `list icon zones`, direct AppleScript diagnostics
+
+### Findings
+
+1. **The earlier release block was a smoke-fixture problem, not a generic SaneBar move regression.**
+   - Direct mini Pro launches still completed hidden/visible/always-hidden moves successfully for `SaneHosts`.
+   - Full routed `release_preflight` was being derailed by unstable candidate selection inside `live_zone_smoke.rb`.
+
+2. **Move smoke and browse smoke needed separate candidate pools.**
+   - `Shottr` and `Coin Tick` are not safe release-gating move fixtures on the mini.
+   - They were removed from move-gating candidates via the move denylist.
+   - First-party Sane app bundles now get preferred move-candidate ranking, but only inside move selection.
+
+3. **Browse activation was previously inheriting the move denylist by mistake.**
+   - That stripped stable Apple extras like Bluetooth and Display before browse probing ever started.
+   - `browse_activation_pool(zones)` now exists separately from `candidate_pool(zones)`.
+   - Explicit preferred browse IDs are allowed to bypass the coarse Apple bundle denylist.
+
+4. **Isolated Apple browse results are mixed, so only proven fixtures should gate release.**
+   - `com.apple.menuextra.bluetooth` right-click browse activation succeeds in isolation on the mini.
+   - `com.apple.menuextra.display` and `com.apple.menuextra.spotlight` fall back/timed out in isolated right-click probes.
+   - Strict multi-candidate browse sweeps are not reliable when they chain several Apple system menus in one session.
+
+5. **There was also one flaky unit test unrelated to the smoke harness.**
+   - `StatusBarControllerTests` had a snapshot test that seeded raw defaults directly and could read stale ByHost autosave state.
+   - That test now uses `applyLayoutSnapshot` + `captureLayoutSnapshot` for a real round-trip instead of raw key poking.
+
+### Conclusion
+
+- As of 2026-03-16, mini `release_preflight` is technically green again for SaneBar.
+- The remaining preflight output is warnings only: open issues, pending emails, migration caution, and uncommitted files.
+- Safe operational stance before release:
+  - use `SaneHosts` as the primary move smoke fixture on the mini
+  - let Bluetooth act as the known-good Apple browse fixture
+  - do not let Shottr, Coin Tick, Display, or Spotlight veto release smoke
