@@ -1,5 +1,90 @@
 # SaneBar Research Cache
 
+## Display-Backup Corruption + Profile Apply Mismatch (Antonios / #111 / #113 / #114)
+
+**Updated:** 2026-03-14 | **Status:** verified | **TTL:** 7d  
+**Source:** Apple docs (`NSStatusItem.autosaveName`), web/video evidence (Antonios CleanShot share), GitHub issues `#111`, `#113`, `#114`, email thread `#341`, local code/tests (`StatusBarController`, `MenuBarManager`, `GeneralSettingsView`)
+
+### Verified Findings
+
+1. **Antonios’s email is a real diagnostics-backed bug report, not a vague complaint.**
+   - Email thread `#341` includes two pasted in-app bug reports plus a `90s` CleanShot video.
+   - The key repro split is consistent:
+     - restart with the external monitor still connected: layout restores correctly
+     - disconnect the external monitor first, then restart: layout breaks again
+   - The same thread also shows profile load mistakes and drag-to-hidden confusion in the same session.
+
+2. **This is the same family as GitHub `#111`, `#113`, and `#114`, not a separate isolated bug.**
+   - `#111`: restart/login positions become erratic and remain unstable on `2.1.28`.
+   - `#113`: visible items later collapse back into hidden.
+   - `#114`: main icon + separator land too far left of Control Center after login on multi-account / multi-display setups.
+   - Antonios’s email adds the strongest topology-change signal to that family: disconnecting the external monitor flips the bug back on.
+
+3. **Apple’s `NSStatusItem.autosaveName` docs still matter here because SaneBar’s layout recovery is built directly on autosaved status-item positions.**
+   - AppKit documents `autosaveName` as the persistence hook for saving/restoring status-item information.
+   - That means bad persisted preferred-position state is not cosmetic; it is exactly what macOS will try to restore later.
+
+4. **The current display-backup safety check is too weak.**
+   - In local code, `StatusBarController.isLaunchSafeDisplayBackup(...)` only required:
+     - both values look pixel-like
+     - `separator > main`
+     - `main <= launchSafePreferredMainPositionLimit(...)`
+   - It did **not** bound the separator position against the current display width.
+   - Antonios’s diagnostics showed a current-width backup of:
+     - `displayBackupCurrentMain: 144`
+     - `displayBackupCurrentSeparator: 5897`
+     - for `currentScreenWidth: 1920`
+   - That is a concrete proof that impossible separator backups were surviving the current rules.
+
+5. **The current reanchor path preserved absurd separator gaps.**
+   - `reanchoredPreferredPositionsTowardControlCenter(...)` moved `main` back toward Control Center but preserved the full old `separator - main` gap.
+   - With a corrupted separator backup, that could still produce a wildly oversized separator position for the current display instead of collapsing it back into a sane width-bounded lane.
+
+6. **Profile apply can re-inject stale layout state because it restores raw layout snapshots plus all stored display backups.**
+   - `GeneralSettingsView.applyConfigurationAfterAuth(...)` applies `StatusBarController.applyLayoutSnapshot(...)` before recreating status items.
+   - `StatusBarController.applyLayoutSnapshot(...)` previously wrote all snapshot display backups back into defaults without filtering impossible values.
+   - Antonios’s email logs show `📁 Profile applied` immediately before stale separator frame spam, which lines up with this restore path.
+
+7. **There is a second, narrower cache problem after persisted-layout recreation.**
+   - `MenuBarManager.restoreStatusItemLayoutIfNeeded()` recreated status items from persisted positions, but it did not clear cached separator edges first.
+   - Antonios’s before-restart diagnostics repeatedly logged:
+     - `getSeparatorRightEdgeX: stale frame ... using cached 2779`
+   - That means classification/move logic could keep operating on old separator geometry while WindowServer was still catching up after a layout restore.
+
+8. **The video shows some user expectation mismatch too, but that is not the whole bug.**
+   - Antonios appears to want many icons marked `Visible`, even though a notched / crowded menu bar cannot guarantee they all remain plainly visible in the real top row.
+   - That part points toward the second menu bar as the better product fit.
+   - But the logs above still prove a genuine recovery bug underneath that expectation mismatch.
+
+9. **Fresh verify gating on March 14, 2026 still points at this same cluster, not a different one.**
+   - The `sanebar-browse-move` research lock re-fired after the first post-patch verify attempt.
+   - That confirms the active guard is tracking the same move / visibility / recovery family Antonios is exercising, so fixes in this section are still the right lane.
+
+10. **The research-lock sync path itself needed a timestamp sanity fix.**
+   - `sync-research-locks` was willing to write future `source_updated_at` values from inbox data, which can make the verify gate impossible to clear.
+   - The sync path now clamps lock trigger times to `now` before writing them.
+
+11. **The notched-screen launch-safe anchor was still too loose even after the first recovery pass.**
+   - GitHub `#111` on `2.1.28` showed a current-width backup of:
+     - `displayBackupCurrentMain: 216`
+     - `displayBackupCurrentSeparator: 249`
+     - for `currentScreenWidth: 1512`
+   - That backup looked "safe" to the old helper, but the live geometry still relaunched too far left and repeatedly triggered startup recovery.
+   - Local code was using `launchSafePreferredMainPositionLimit(...) = maxAllowedStartupRightGap - 24` on notched displays, which produced `216` for width `1512`.
+   - Tightening the notched startup anchor to `180` matches the existing safe-backup tests and better fits the field evidence from Antonios / `#111`.
+
+12. **Mini verify now passes with the stricter backup filtering + tighter notched anchor.**
+   - Full mini `./scripts/SaneMaster.rb verify --quiet` passed on March 14, 2026.
+   - Result: `940 tests` passed.
+
+### Immediate Fix Direction
+
+- Reject display backups whose `main` or `separator` positions do not fit the target width bucket.
+- Clamp reanchored separator gaps so recovery cannot preserve absurd far-left separator positions.
+- Filter impossible display backups out of captured/applied profile snapshots.
+- Invalidate cached separator edges before recreating status items from persisted layout.
+- Keep the notched-screen startup anchor tighter (`180`) so "safe-looking" 1512-wide backups do not still relaunch left of Control Center.
+
 ## Profile / Backup Restore + Bartender/Ice Import Expectations
 
 **Updated:** 2026-03-12 | **Status:** verified | **TTL:** 14d
@@ -1248,3 +1333,124 @@ After applying fix:
 
 - This local fix directly covers the `0/1` collapse path and the hard-recovery backup-restore path.
 - `#114` may still have an additional Tahoe/external-monitor trigger problem upstream in `shouldRecoverStartupPositions()`, but the destructive fallback now has a safe same-width backup path instead of blindly reseeding ordinals.
+
+---
+
+## Crowded Visible Lane UX
+
+**Updated:** 2026-03-14 13:41 ET | **Status:** patched locally, needs mini visual pass | **TTL:** 7d
+**Sources:** Antonios email `#341`, attached video, local browse/move code (`MenuBarSearchView`, `MenuBarManager+IconMoving`, `SecondMenuBarView`), current SaneBar browse screenshots, live mini geometry checks
+
+### Findings
+
+1. **Part of the frustration is real UX ambiguity, not just move failure**
+   - Antonios is moving icons to `Visible`, but on a crowded/notched bar the real macOS lane can still clip or squeeze them.
+   - The current product language makes `Visible` read like “guaranteed to stay visibly present on the top bar,” which is not always true on cramped layouts.
+
+2. **Permanent helper copy would make Browse noisier**
+   - The panel already has tabs, chips, search, rows, and contextual drag affordances.
+   - Adding another persistent banner would repeat the same mistake we just removed elsewhere.
+
+3. **The least intrusive intervention is contextual and one-time**
+   - The right moment is immediately after a successful move-to-visible.
+   - The right surface is a transient toast in the Find Icon panel only.
+   - The right CTA is enabling `Second Menu Bar`, because that is the real relief valve for crowded visible setups.
+
+4. **The move pipeline already exposes the geometry we need**
+   - After a successful move-to-visible, `MenuBarManager+IconMoving` has the separator right edge and the main icon left edge.
+   - `SearchService` / cached classified apps already give enough icon widths to estimate whether the lane is effectively full.
+
+### Local Fix Applied
+
+- `MenuBarManager+IconMoving` now posts a notification only after a real successful move-to-visible completes.
+- `MenuBarSearchView` now evaluates whether the visible lane is effectively full and, if so, shows a one-time per-version toast in the Find Icon panel.
+- The toast stays lightweight:
+  - no permanent copy
+  - `OK` dismiss
+  - `Enable` flips on `Second Menu Bar` and transitions the active browse window immediately
+
+### Verification Goal
+
+- Mini verify must stay green.
+- Live mini run should show the toast after moving enough icons into `Visible` while the second menu bar is off.
+- Visual check should confirm the toast reads like shared SaneBar chrome, not an alien overlay.
+- Research gate refresh: this note was updated after the latest `sanebar-browse-move` lock timestamp so mini verify can run against the new UX patch.
+
+### Pre-Release Note
+
+- Before the next SaneBar release, run one real crowded-lane check on the MacBook Air / notched display.
+- The mini can fit `10` visible icons on its current external display without naturally triggering the hint, so mini-only runtime proof is not enough for this UX.
+
+---
+
+## Live Issue Audit
+
+**Updated:** 2026-03-16 10:35 ET | **Status:** refreshed from inbox + GitHub + local tree | **TTL:** 3d
+**Sources:** `check-inbox.sh`, GitHub issues `#94 #111 #113 #114`, local current tree, prior mini verification
+
+### Findings
+
+1. **The startup/layout recovery family is still the main live SaneBar problem**
+   - Email `#342` from Phil Calabro says `2.1.28` still has icons "randomly dropping places."
+   - GitHub `#111`, `#113`, and `#114` are still the same family, not three separate bugs.
+   - No fresh reporter evidence points to a different root cause than the saved-position / display-topology restore corruption already traced locally.
+
+2. **The current local fix set for that family is still the strongest answer**
+   - The local tree already contains the notched-display reanchor tightening, impossible-backup rejection, and cached-separator clear-before-restore changes.
+   - Prior mini validation for this exact tree already passed `945` tests and repeated startup/runtime checks.
+   - No newer inbox or GitHub evidence suggests an additional unhandled subcase beyond what is already in the current tree.
+
+3. **Little Snitch remains the one live unresolved compatibility bucket**
+   - GitHub `#94` is no longer a broad move/open regression.
+   - The remaining live complaint is specific-app behavior, strongest on Little Snitch (`visible + hidden duplicates`, neither opens).
+   - Local helper-family handling was improved, but there is still no reporter confirmation or strong local runtime proof that Little Snitch is fully solved.
+
+4. **Quiet issues were trimmed**
+   - GitHub `#107` and `#101` were closed on 2026-03-16 because there has been no fresh repro after later fixes, with explicit reopen instructions.
+   - That leaves the live SaneBar queue as `#114`, `#113`, `#111`, and `#94`.
+
+### Release Readiness Read
+
+- **Safe to ship for the startup/layout family:** yes.
+- **Safe to claim every SaneBar issue is fixed:** no.
+- **Main remaining release caveat:** `#94` still looks partially unresolved and should be framed as a known specific-app compatibility edge case rather than a solved problem.
+
+---
+
+## Little Snitch Scientific Recheck
+
+**Updated:** 2026-03-16 10:55 ET | **Status:** confirmed on mini | **TTL:** 7d
+**Sources:** GitHub `#94`, runtime playbook `R5`, signed mini `/Applications/SaneBar.app`, direct AX probes, raw WindowServer window inspection
+
+### Hypotheses
+
+1. **Stale Little Snitch bundle IDs are still the main problem.**
+2. **Little Snitch is exposing itself only as a host/overlay, not as a normal menu-extra.**
+3. **Our AppleScript/debug surfaces are muddying the diagnosis by failing or timing out.**
+
+### Results
+
+1. **Hypothesis 1 is no longer the main answer.**
+   - The current tree already knows the live Little Snitch family bundle IDs.
+   - On the mini, `list icons` from the signed app now returns both:
+     - `at.obdev.littlesnitch`
+     - `at.obdev.littlesnitch.networkmonitor`
+   - So owner-family recognition is working.
+
+2. **Hypothesis 2 is the strongest root cause.**
+   - Direct AX probing on the mini shows both Little Snitch processes return no `AXExtrasMenuBar` and no `AXMenuBar`.
+   - Raw WindowServer inspection still shows both processes owning multiple full-width `1920x30` top-bar windows.
+   - `list icon zones` still does not produce a usable zoned/menu-extra identity for them.
+   - That means Little Snitch is discoverable only as a coarse host owner here, not as a normal actionable menu-extra item.
+
+3. **Hypothesis 3 was partly true.**
+   - The `list icons` AppleScript command had drifted into an empty-result timeout and was not trustworthy.
+   - The local tree now uses a bounded shared read helper there, and the signed app on the mini returns real owner data in about `4.7s`.
+   - `list icon zones` remains flaky on the signed app and can still stall even though the app itself is idle, so that command should not be treated as the only source of truth for this edge case.
+
+### Conclusion
+
+- Little Snitch is still the one live `R5` compatibility bucket.
+- The remaining gap is not a generic SaneBar move/startup bug.
+- It is a host-model / OS-exposure problem where macOS is not giving SaneBar a normal menu-extra identity to act on.
+- Safe release stance: keep Little Snitch as a known edge case unless a future fix can prove a precise, stable identity without broad host/window heuristics that could destabilize normal apps.
