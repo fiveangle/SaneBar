@@ -1495,3 +1495,28 @@ After applying fix:
   - use `SaneHosts` as the primary move smoke fixture on the mini
   - let Bluetooth act as the known-good Apple browse fixture
   - do not let Shottr, Coin Tick, Display, or Spotlight veto release smoke
+
+---
+
+## Compatibility Edge Cases Audit
+
+**Updated:** 2026-03-16 17:00 ET | **Status:** verified on mini + support history | **TTL:** 7d
+**Sources:** André email thread #330 screenshot/report, `MenuBarAppearanceService.swift`, `MenuBarAppearanceServiceTests.swift`, mini verify, live `list icons` diagnostics for Little Snitch
+
+### Findings
+
+1. **World of Warcraft was a real Menu Bar Appearance overlay bug, and it shipped in 2.1.29.**
+   - André's report was not a hidden-icon issue. It was the gray Menu Bar Appearance overlay staying visible over WoW until SaneBar quit.
+   - `MenuBarAppearanceService.shouldSuppressOverlay(...)` now suppresses the overlay for active third-party full-width top hosts.
+   - There is explicit regression coverage for `com.blizzard.worldofwarcraft`.
+
+2. **Little Snitch is still a separate compatibility edge case and should not be conflated with the startup/layout family.**
+   - On the mini, Little Snitch processes expose no usable `AXExtrasMenuBar` or `AXMenuBar`.
+   - Signed `/Applications/SaneBar.app` can list coarse Little Snitch owners, but there is still no precise zoned/actionable menu-extra identity.
+   - This remains an `R5` host-model / OS exposure edge case, not a generic Browse Icons or startup regression.
+
+### Conclusion
+
+- `2.1.29` legitimately includes the WoW overlay suppression fix.
+- `#94` should remain open as a known Little Snitch-style compatibility edge case until a precise stable identity path is proven.
+- Do not risk destabilizing SaneBar with speculative Little Snitch heuristics just to force a pre-release fix.
