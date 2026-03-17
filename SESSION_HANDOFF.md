@@ -3,6 +3,17 @@
 **Date:** 2026-03-12
 **Last released version:** `v2.1.26` (build `2126`)
 
+## Addendum (2026-03-17)
+
+- Setapp single-app distribution is now documented as SaneBar's likely third channel alongside direct download.
+- Direct Lemon Squeezy + Sparkle remains the website/direct business path.
+- The current full-featured Mac App Store lane stays intentionally disabled.
+- Setapp-specific blockers/gotchas are now captured in `ARCHITECTURE.md` and `.claude/research.md`:
+  - separate `-setapp` bundle ID
+  - no Sparkle / no direct licensing UI / no donate UI in the Setapp build
+  - explicit Setapp `.userInteraction` reporting because SaneBar is a menu bar app
+  - universal-binary readiness and real `setappPublicKey.pem` still need proof
+
 ---
 
 ## Session 60 (2026-03-12 late afternoon)

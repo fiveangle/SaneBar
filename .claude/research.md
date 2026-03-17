@@ -23,6 +23,23 @@
 14. Customer-facing edge-case framing should be: SaneBar is built around Apple’s supported menu bar APIs and the standard macOS behavior they produce; most Apple menu extras and normal third-party apps should work well; some apps use unusual/custom helper-host or window-backed models, and those compatibility limits come from that app’s implementation rather than from SaneBar ignoring the supported path.
 15. Avoid saying Apple "enforces" one universal implementation. Prefer "Apple supports the standard menu bar API path, and SaneBar is optimized for that supported path."
 
+## Setapp Single-App Distribution Lane
+
+**Updated:** 2026-03-17 | **Status:** verified | **TTL:** 30d
+**Source:** Setapp email thread `#370`, official Setapp docs, local SaneBar/SaneUI code audit, public Setapp framework interface
+
+### Verified Findings
+
+1. Setapp single-app distribution is a real third lane for SaneBar, not a replacement for the direct Lemon Squeezy business.
+2. Public Setapp docs still describe a narrower rollout than Hanna's email, so business eligibility should follow the live thread while technical implementation should still follow the published docs.
+3. SaneBar should not rely on the current direct-vs-App-Store runtime inference once Setapp exists; it needs an explicit channel abstraction.
+4. SaneBar's Setapp build should remove Sparkle, Lemon Squeezy activation UI, and donate/sponsorship UI while keeping the app otherwise as close to the direct build as possible.
+5. Because SaneBar is a menu bar app, Setapp usage reporting needs an explicit `.userInteraction` event on real icon activation.
+6. Setapp macOS 13+ updates require `NSUpdateSecurityPolicy` for `com.setapp.DesktopClient.SetappAgent`.
+7. If SaneBar's Setapp build remains sandboxed, it will need the `com.setapp.ProvisioningService` Mach lookup exception.
+8. Current SaneBar project settings are `arm64` only, so Setapp universal-readiness is a real blocker, not a box to tick later.
+9. Operational blocker: final Setapp runtime verification cannot happen until the real `setappPublicKey.pem` is provided.
+
 ## Display-Backup Corruption + Profile Apply Mismatch (Antonios / #111 / #113 / #114)
 
 **Updated:** 2026-03-14 | **Status:** verified | **TTL:** 7d  
