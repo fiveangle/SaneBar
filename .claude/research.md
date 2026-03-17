@@ -41,6 +41,43 @@
 9. SaneBar currently stores app data in `Application Support/SaneBar` but keys credentials off the bundle ID, so a direct build and a Setapp build would likely share settings/profile data while keeping separate license state.
 10. Operational blocker: final Setapp runtime verification cannot happen until the real `setappPublicKey.pem` is provided.
 
+## Setapp Lane Scaffolding + XcodeGen Package Resolution
+
+**Updated:** 2026-03-17 | **Status:** verified | **TTL:** 14d
+**Source:** official Setapp docs, GitHub/XcodeGen package behavior, local `xcodegen generate` + `xcodebuild -resolvePackageDependencies` + local verify logs
+
+### Verified Findings
+
+1. The new shared Setapp-safe UI/channel plumbing compiles and tests in the local `SaneUI` package (`swift test` passed after adding `direct/appStore/setapp` channel policy).
+2. SaneBar's first two local `verify` failures on this Setapp pass were not caused by the Setapp code itself. They were caused by stale package resolution:
+   - `project.yml` was changed from remote `https://github.com/sane-apps/SaneUI.git` to local `../../infra/SaneUI`
+   - `xcodegen generate` correctly produced an `XCLocalSwiftPackageReference`
+   - but the workspace still held the old remote pin in `Package.resolved`, so `verify` kept compiling against the old GitHub checkout
+3. The fix path is:
+   - `xcodegen generate`
+   - then explicit `xcodebuild -resolvePackageDependencies -project SaneBar.xcodeproj -scheme SaneBar`
+   - only after that does SaneBar resolve `SaneUI: /Users/sj/SaneApps/infra/SaneUI`
+4. SaneBar was the mainline outlier here. Other current SaneApps app projects already point at local `../../infra/SaneUI` package paths.
+5. The Setapp scaffolding that should remain in the codebase now includes:
+   - explicit `SaneDistributionChannel`
+   - `PurchaseBackend.setapp`
+   - Setapp-safe license/about/onboarding/upsell behavior
+   - Setapp-safe update messaging/tooltips
+6. Real SaneBar runtime blockers found during this pass:
+   - `main.swift` previously rejected any non-`com.sanebar.app` release bundle ID, so Setapp builds needed an explicit `com.sanebar.app-setapp` guard
+   - `SaneBarApp` was still auto-moving non-debug builds into `/Applications`, which must not happen in a Setapp lane
+   - `UpdateService` still imported/initialized Sparkle unconditionally, so Setapp needed a no-Sparkle stub path rather than just hiding update buttons
+7. Local build-config scaffolding now exists in `project.yml` for:
+   - `ProdDebug-Setapp`
+   - `Release-Setapp`
+   - plus a dedicated `SaneBarSetapp` scheme
+8. Those configs are still only a scaffold. Final Setapp readiness still needs:
+   - real `setappPublicKey.pem`
+   - real Setapp framework/runtime entitlement wiring
+   - menu-bar `.userInteraction` reporting
+   - macOS 13+ `NSUpdateSecurityPolicy`
+   - universal-binary proof instead of the current arm64-only assumption
+
 ## Display-Backup Corruption + Profile Apply Mismatch (Antonios / #111 / #113 / #114)
 
 **Updated:** 2026-03-14 | **Status:** verified | **TTL:** 7d  
@@ -1662,3 +1699,46 @@ After applying fix:
 - Treat Steve/Colin style move complaints as probably improved by `2.1.30`, but do not promise they are fully solved without logs.
 - Do not treat the startup/reset family as fixed yet.
 - Patch startup to honor `autoRehide=false` before the initial hide path, then retest on the mini and carry that into the next SaneBar patch if it verifies cleanly.
+
+---
+
+## 2026-03-17 Setapp Lane Skeleton
+
+**Updated:** 2026-03-17 17:55 ET | **Status:** shared channel scaffolding verified locally; final Setapp signing/resources still pending | **TTL:** 14d
+**Sources:** local SaneUI/SaneBar/SaneClip code, local Xcode Setapp builds, local bundle inspection, local launch logs
+
+### Findings
+
+1. **Shared Setapp-aware channel logic now exists.**
+   - SaneUI now exposes an explicit `direct` / `appStore` / `setapp` channel model.
+   - SaneBar now hides direct purchase/update/support affordances in Setapp mode and uses `com.sanebar.app-setapp`.
+
+2. **A raw Setapp scheme build is not the same as a clean Setapp bundle.**
+   - The SaneBar `SaneBarSetapp` scheme compiles successfully.
+   - But Xcode can still restore embedded `Sparkle.framework` and `SU*` keys after the target shell phase runs.
+   - The authoritative cleanup step is the central sanitizer:
+     - `/Users/sj/SaneApps/infra/SaneProcess/scripts/sanitize_distribution_bundle.rb --channel setapp <app>`
+
+3. **Sanitized Setapp bundles are launchable locally after re-signing.**
+   - Local sanitized bundles initially die with `Code Signature Invalid`, which is expected after mutating Mach-O binaries.
+   - After ad hoc re-signing, the sanitized SaneBar Setapp bundle launches and stays running locally.
+
+### Verified local state
+
+- `SaneBarSetapp` scheme builds locally.
+- Sanitized bundle has:
+  - bundle id `com.sanebar.app-setapp`
+  - no `SUFeedURL`
+  - no `SUPublicEDKey`
+  - no embedded `Sparkle.framework`
+  - only a weak Sparkle load command in the debug dylib
+- Direct SaneBar lane still passes local `./scripts/SaneMaster.rb verify --quiet` with `956` tests.
+
+### Remaining blockers
+
+- Mini is unreachable, so Setapp launch proof is local fallback only.
+- Real Setapp resource work is still pending:
+  - `setappPublicKey.pem`
+  - Setapp update policy / release notes path
+  - Setapp usage reporting for menu bar interaction
+- Real release flow must sanitize before final signing/notarization, or re-sign afterward as part of the Setapp lane.
