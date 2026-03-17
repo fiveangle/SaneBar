@@ -1520,3 +1520,76 @@ After applying fix:
 - `2.1.29` legitimately includes the WoW overlay suppression fix.
 - `#94` should remain open as a known Little Snitch-style compatibility edge case until a precise stable identity path is proven.
 - Do not risk destabilizing SaneBar with speculative Little Snitch heuristics just to force a pre-release fix.
+
+---
+
+## Ellery Sluggishness Audit
+
+**Updated:** 2026-03-16 20:55 ET | **Status:** root cause identified, patched locally, mini-tested | **TTL:** 7d
+**Sources:** email thread `#362`, mini `check-inbox.sh review 362`, local/mini source audit, mini signed release launch, mini QA/runtime smoke, mini test runner diagnostics
+
+### Hypotheses
+
+1. **The hover detector was using the wrong screen on multi-display setups.**
+   - This was true.
+   - `HoverService` instance methods were still using `NSScreen.main` instead of the screen containing the pointer.
+   - Ellery has `showOnHover=true`, `showOnScroll=true`, and `3` displays, so that stale logic could create false menu-bar-region hits near the top of unrelated displays and make SaneBar feel sluggish or inconsistent.
+
+2. **The app was also deriving screen/notch diagnostics from the wrong screen, hiding the real state.**
+   - This was also true.
+   - Ellery's diagnostics mixed `currentScreenWidth=2560` / `hasNotch=false` with a live status-item screen on the built-in display.
+   - That split-brain state made the report hard to interpret and could feed future display-recovery decisions with misleading context.
+
+3. **The browse window itself was the primary source of the sluggishness.**
+   - This looks unlikely as the main root cause for Ellery's report.
+   - Mini signed runtime smoke showed both browse modes activating normally.
+   - The smoke failure on this pass was unrelated: there was no movable candidate icon on the mini, not a dead or delayed browse activation.
+
+4. **There is a second unproven multi-display regression beyond hover detection.**
+   - I do not have hard proof of a second root cause yet.
+   - The mini test runner is still noisy and can unexpectedly kill the app before establishing the test connection, so I am not going to invent a second failure mode without stronger evidence.
+
+### Fixes
+
+1. **Hover detection is now screen-aware in the live path.**
+   - `HoverService.isInMenuBarRegion(_:)` now resolves against the screen containing the pointer instead of `NSScreen.main`.
+   - `distanceFromMenuBarTop(_:)` now uses the same containing-screen logic and treats points outside all screens as effectively far away instead of `0`.
+
+2. **Diagnostics now expose the real screen split instead of collapsing everything into `NSScreen.main`.**
+   - Reports now include:
+     - `statusItemScreen`
+     - `statusItemScreenWidth`
+     - `pointerScreen`
+     - `pointerScreenWidth`
+   - `currentScreenWidth` now prefers the actual status-item screen.
+
+3. **Menu-bar notch detection now follows the real status-item screen first.**
+   - `MenuBarManager.hasNotch` now prefers the live status-item screen, then pointer screen, then `NSScreen.main`.
+
+### Validation
+
+1. **New regression tests**
+   - `HoverServiceTests` now pins down the containing-screen logic for:
+     - menu bar interaction region
+     - menu bar top-distance calculation
+   - `SearchWindowTests` now checks that the expanded diagnostics include the new multi-display fields.
+
+2. **Mini runtime**
+   - Signed release build launched cleanly on the mini via `./scripts/SaneMaster.rb test_mode --release --no-logs`.
+   - QA with `SANEBAR_RUN_RUNTIME_SMOKE=1` showed:
+     - layout invariants passed
+     - both `secondMenuBar` and `findIcon` browse activation paths responded
+     - idle and smoke resource budgets stayed normal
+   - That smoke run did not complete because the mini had no movable candidate icon, which is unrelated to Ellery's sluggish-click report.
+
+3. **Mini test caveat**
+   - Full mini `verify` and a focused `xcodebuild test` run both hit the same older harness problem:
+     - test runner unexpectedly killed before establishing connection
+   - The changed tests compile and the relevant suites run, but I am not treating the runner crash as signal against this fix.
+
+### Conclusion
+
+- The strongest root cause for Ellery's sluggishness is stale `NSScreen.main` usage in the live hover/scroll detector on a multi-display setup.
+- The secondary real fix is diagnostics/notch state now following the actual status-item screen instead of whichever screen AppKit reports as main.
+- I have not proven a second independent code bug in this report yet.
+- Safe next step: ship this as a targeted multi-display responsiveness fix, then ask Ellery to retest on the next build.
