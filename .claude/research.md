@@ -1616,3 +1616,31 @@ After applying fix:
 - The secondary real fix is diagnostics/notch state now following the actual status-item screen instead of whichever screen AppKit reports as main.
 - I have not proven a second independent code bug in this report yet.
 - Safe next step: ship this as a targeted multi-display responsiveness fix, then ask Ellery to retest on the next build.
+
+---
+
+## 2026-03-17 Issue Triage Follow-up
+
+**Updated:** 2026-03-17 11:38 ET | **Status:** move family partly addressed in 2.1.30; startup/reset family still active | **TTL:** 7d
+**Sources:** email reviews `#364`, `#365`, `#368`; GitHub `#111`, `#113`, `#114`, `#115`; local code audit
+
+### Findings
+
+1. **`2.1.30` likely helped the mainstream move/classification complaints.**
+   - Steve `#364` described beachballs on hidden -> visible and wrong Apple item mapping (Wi-Fi vs Battery).
+   - That matches the Apple/native move path hardened in the `2.1.30` cycle.
+
+2. **`2.1.30` did not materially change the startup/layout reset family.**
+   - Open GitHub issues `#111`, `#113`, `#114`, and `#115` still map to startup/reset behavior, not to the new move verification path.
+   - No new `StatusBarController` startup-recovery change landed between `2.1.29` and `2.1.30`.
+
+3. **Current startup behavior still contradicted user settings.**
+   - `Core/MenuBarManager.swift` was still forcing an initial launch hide even when `settings.autoRehide == false`.
+   - Issue `#111` diagnostics on `2.1.29` showed exactly that state: `autoRehide=false` but `hidingState=hidden` immediately after launch.
+   - That is a credible explanation for users saying icons “reset to hidden a few seconds later” even when startup restore initially looked correct.
+
+### Conclusion
+
+- Treat Steve/Colin style move complaints as probably improved by `2.1.30`, but do not promise they are fully solved without logs.
+- Do not treat the startup/reset family as fixed yet.
+- Patch startup to honor `autoRehide=false` before the initial hide path, then retest on the mini and carry that into the next SaneBar patch if it verifies cleanly.
