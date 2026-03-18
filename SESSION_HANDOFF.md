@@ -1,7 +1,36 @@
 # Session Handoff — SaneBar
 
 **Date:** 2026-03-18
-**Last released version:** `v2.1.30` (build `2130`)
+**Last released version:** `v2.1.32` (build `2132`)
+
+## Addendum (2026-03-18 release 2.1.32)
+
+- `v2.1.32` published at `2026-03-18T23:03:28Z`:
+  - GitHub release: `https://github.com/sane-apps/SaneBar/releases/tag/v2.1.32`
+  - direct ZIP: `https://dist.sanebar.com/updates/SaneBar-2.1.32.zip`
+  - appcast: `https://sanebar.com/appcast.xml`
+- Release proof before publish:
+  - `./scripts/SaneMaster.rb verify --quiet` passed
+  - staged browse smoke passed `2/2`
+  - staged startup layout probe passed:
+    - poisoned relaunch state restored from current-width backup
+    - `autoRehide=false` stayed expanded at `T+2s` and `T+5s`
+  - strict post-release checks passed
+- Public channel verification after publish:
+  - GitHub release `v2.1.32` is live with `SaneBar-2.1.32.zip`
+  - `dist.sanebar.com` serves the ZIP with `content-length=8248171`
+  - `sanebar.com/appcast.xml` has exactly one `2.1.32` entry with `sparkle:version="2132"`
+  - `sanebar.com` download links and JSON-LD now point to `2.1.32`
+  - Homebrew cask is live at `d45d66e`
+  - email webhook config is live at `a406498`
+- Local workspaces synced after release:
+  - SaneBar local main: `9b797b5`
+  - homebrew-tap local main: `d45d66e`
+  - sane-email-automation local main: `a406498`
+- All six open GitHub issues were updated on 2026-03-18 asking reporters to retest on `2.1.32`.
+- Remaining proof gap:
+  - `#111/#113/#114/#115/#116/#117` still need reporter confirmation on the shipped build
+  - browse focus smoke now proves frontmost-app integrity, but not the exact prior window inside that app
 
 ## Addendum (2026-03-18 late runtime audit)
 
@@ -34,12 +63,12 @@
 ### Open GitHub Issues (current)
 | # | Title | Status | Action Needed |
 |---|-------|--------|---------------|
-| 111 | positions look right, then collapse into SaneBar after 2-3 seconds | Open | Treat as part of the startup/reset family; still needs field confirmation on a shipped fix |
-| 113 | All visible items moved to hidden | Open | Same family as `#111/#114/#115`; no confident closure yet |
-| 114 | menubar icon and separator always placed left of Control Center on login | Open | Same family; strong multi-display/login evidence |
-| 115 | menu bar icon and hidden icons keep resetting while app is open | Open | Confirms reset family is not startup-only |
-| 116 | right-click browse flashes and focus jumps back to prior app | Open | Fixed on `main`, needs shipped-build customer confirmation |
-| 117 | wrong icon mapped during hidden→visible move and beachballs during add | Open | Needs exact-identity hardening and dedicated runtime proof |
+| 111 | positions look right, then collapse into SaneBar after 2-3 seconds | Open | Waiting for reporter retest on `2.1.32` |
+| 113 | All visible items moved to hidden | Open | Waiting for reporter retest on `2.1.32` |
+| 114 | menubar icon and separator always placed left of Control Center on login | Open | Waiting for reporter retest on `2.1.32` |
+| 115 | menu bar icon and hidden icons keep resetting while app is open | Open | Waiting for reporter retest on `2.1.32` |
+| 116 | right-click browse flashes and focus jumps back to prior app | Open | Waiting for reporter retest on `2.1.32` |
+| 117 | wrong icon mapped during hidden→visible move and beachballs during add | Open | Waiting for reporter retest on `2.1.32` |
 
 ## Addendum (2026-03-17)
 
