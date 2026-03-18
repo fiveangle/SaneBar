@@ -1,5 +1,54 @@
 # SaneBar Research Cache
 
+## Startup / Browse / Move Regression Audit + 2.1.32 Release
+
+**Updated:** 2026-03-18 | **Status:** verified | **TTL:** 14d
+**Source:** Apple docs (`NSStatusItem.autosaveName`, `NSApplication.ActivationPolicy.accessory`, `setActivationPolicy`), GitHub issues `#111` / `#113` / `#114` / `#115` / `#116` / `#117`, local code/tests, Mini staged-release runtime proof, public release-channel verification
+
+### Verified Findings
+
+1. The current SaneBar reliability problem is best modeled as one shared runtime pipeline, not isolated bugs: `identify target -> choose visibility policy -> choose geometry source -> execute action -> verify/persist`.
+2. The active public bug buckets remain:
+   - startup/reset family: `#111/#113/#114/#115`
+   - browse focus family: `#116`
+   - move / identity-drift family: `#117`
+3. The March 18 code hardening directly targeted the two strongest proven weak points:
+   - startup validation was serialized behind the startup hide/recovery path so it does not race launch recovery
+   - same-bundle activation fallback now refuses sibling substitution once precise identity is lost
+4. The staged release startup probe is real proof, not just a source-string guard:
+   - it seeds poisoned startup prefs (`main=0`, `separator=1`)
+   - requires a valid current-width backup
+   - relaunches the staged app
+   - verifies the current-width backup wins over ordinal reseed
+   - verifies `autoRehide=false` stays expanded at `T+2s` and `T+5s`
+5. The staged release browse smoke is also real proof:
+   - browse activation passed in both browse modes
+   - hidden/visible and always-hidden move actions passed
+   - frontmost-app reversion is now explicitly checked for the browse right-click family
+6. Remaining runtime proof gap after the new smoke:
+   - browse focus integrity is proven at the app level, but not yet at the exact prior-window level inside that app
+7. Exact same-bundle move safety is now stronger in both code and smoke:
+   - activation fallback rejects sibling substitution when multiple same-bundle items exist and the original item had precise identity
+   - live smoke refuses same-bundle sibling fallback when verifying move success
+   - focused Mini proof rechecked the Control Center-family exact-ID move path with `Focus`
+8. SaneBar 2.1.32 shipped publicly on 2026-03-18 only after:
+   - `verify` passed
+   - staged browse smoke passed `2/2`
+   - staged startup layout probe passed
+   - archive/export/notarization/staple passed
+   - strict post-release checks passed
+9. Public `2.1.32` verification after ship:
+   - GitHub release live
+   - direct ZIP live at `dist.sanebar.com`
+   - appcast has exactly one `2.1.32` item with `sparkle:version="2132"`
+   - homepage download links and JSON-LD point to `2.1.32`
+   - Homebrew cask live
+   - email webhook live
+10. Safe release stance after March 18:
+   - `#111/#113/#114/#115/#116/#117` are technically addressed strongly enough to ship `2.1.32`
+   - none of those issues should be closed until reporter confirmation arrives on the shipped build
+11. All six live issues were commented on 2026-03-18 asking reporters to retest on `2.1.32`.
+
 ## Native Menu Extras vs Edge Cases (99%-first policy)
 
 **Updated:** 2026-03-17 | **Status:** verified | **TTL:** 14d
