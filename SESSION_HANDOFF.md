@@ -1,7 +1,45 @@
 # Session Handoff — SaneBar
 
-**Date:** 2026-03-12
-**Last released version:** `v2.1.26` (build `2126`)
+**Date:** 2026-03-18
+**Last released version:** `v2.1.30` (build `2130`)
+
+## Addendum (2026-03-18 late runtime audit)
+
+- New audit commits on `main`:
+  - `654bb23` `Document SaneBar runtime regression audit`
+  - `5c81fed` `Harden browse smoke focus integrity`
+- Active bug families are now tracked as:
+  - startup / layout / reset family: `#111 #113 #114 #115`
+  - browse right-click / focus family: `#116`
+  - wrong-target move / beachball family: `#117`
+- Mini runtime proof completed during this pass:
+  - `./scripts/SaneMaster.rb verify --quiet` passed at push time with `957` tests
+  - signed `/Applications/SaneBar.app` live smoke passed with the new browse focus probe in `86.89s`
+  - poisoned startup prefs + valid current-width backup restored cleanly on the Mini (`main=144`, `separator=247`) instead of falling through to ordinal reseed
+  - `autoRehide=false` launch probe stayed `expanded` at `T+2s` and `T+5s`
+  - same-bundle exact-ID probe on the Control Center family moved `Focus` itself, then moved it back cleanly
+- Newly confirmed risks:
+  - startup recovery still has multiple planners in one launch (`StatusBarController.init`, `setupStatusItem`, `schedulePositionValidation`)
+  - `moveIcon(...)` still has a false-success seam because it returns before the detached drag task finishes
+  - browse-session correctness is still caller-owned across UI, AppleScript, and `SearchService`
+  - `docs/state-machines.md` and the old handoff were stale enough to overstate confidence
+- Shared runtime model now documented:
+  - startup recovery, browse activation, and move actions all follow the same fragile pipeline: `identify target -> choose visibility policy -> choose geometry source -> execute action -> verify/persist`
+  - the bug families differ mainly by which stage fails first, not by being unrelated systems
+- Standard rule for this bug family:
+  - do not call it fixed unless the relevant row passed in real Mini runtime
+  - label proof as `runtime`, `logic/unit`, or `source-guard`
+  - if runtime did not pass, say `unconfirmed in runtime`, not fixed
+
+### Open GitHub Issues (current)
+| # | Title | Status | Action Needed |
+|---|-------|--------|---------------|
+| 111 | positions look right, then collapse into SaneBar after 2-3 seconds | Open | Treat as part of the startup/reset family; still needs field confirmation on a shipped fix |
+| 113 | All visible items moved to hidden | Open | Same family as `#111/#114/#115`; no confident closure yet |
+| 114 | menubar icon and separator always placed left of Control Center on login | Open | Same family; strong multi-display/login evidence |
+| 115 | menu bar icon and hidden icons keep resetting while app is open | Open | Confirms reset family is not startup-only |
+| 116 | right-click browse flashes and focus jumps back to prior app | Open | Fixed on `main`, needs shipped-build customer confirmation |
+| 117 | wrong icon mapped during hidden→visible move and beachballs during add | Open | Needs exact-identity hardening and dedicated runtime proof |
 
 ## Addendum (2026-03-17)
 
