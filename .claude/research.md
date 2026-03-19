@@ -1860,3 +1860,67 @@ After applying fix:
 - Add a hard browse-focus invariant: failed browse activation must not change the frontmost app/window.
 - Add a hard startup invariant: visible-lane width and visible-count floor must survive restart when a current-width backup exists.
 - Add an exact-ID move check for shared-bundle / Control Center-family items.
+
+## 2026-03-19 Release Readiness Recheck
+
+**Updated:** 2026-03-19 13:08 ET | **Status:** not release-ready; fresh 2.1.32 regressions still live | **TTL:** 7d
+**Sources:** inbox `#401 #390 #387`, GitHub `#111 #113 #114 #115 #116 #117 #119`, local code audit, local focused `xcodebuild test`
+
+### Findings
+
+1. **There is fresh field evidence that `2.1.32` still has live regressions.**
+   - GitHub `#111` now has a fresh `2.1.32` repro from `2026-03-19 00:48 UTC` saying the startup/reset family is still happening.
+   - Inbox `#401` from Ellery on `2026-03-19` reports `2.1.32` still has:
+     - focus leaving the current app after hover reveal auto-hides
+     - first right-click on the SaneBar icon flashing instead of staying open
+     - inconsistent left-click hide/show timing with hover enabled
+   - Inbox `#390` is another same-day Tahoe report describing hidden→visible moves still failing and visible items collapsing back into hidden after restart.
+
+2. **One concrete root cause in the current tree is app-menu suppression restoring stale focus.**
+   - `restoreApplicationMenusIfNeeded(...)` was reactivating the originally saved app unconditionally whenever SaneBar hid again.
+   - That is compatible with Ellery's report that focus jumps away after the hidden icons auto-hide.
+   - Safe rule: only reactivate the saved app if SaneBar itself is still frontmost at restore time. If another app is already active, leave focus alone.
+
+3. **A second concrete root cause is passive hover state surviving direct status-item clicks.**
+   - With `showOnHover=true`, a pending hover timer can still be alive when the user explicitly clicks the SaneBar status item.
+   - That can make left-click timing feel inconsistent and can interfere with a first right-click menu open.
+   - Direct status-item interaction should cancel any passive hover timer immediately.
+
+4. **A third concrete fragility is trusting `NSApp.currentEvent` inside `menuWillOpen(...)` after a menu was explicitly requested from a right-click path.**
+   - The explicit call site already knows the status menu is being opened from a right click.
+   - Re-deriving that from `NSApp.currentEvent` inside the menu delegate is fragile and can cancel a real menu open when the current event has already drifted.
+   - Safe rule: explicit right-click menu requests should override stale event classification.
+
+5. **The updater issue `#119` is real but lower priority than the live regression family.**
+   - It requests jumping directly from an older installed version to the newest version instead of stepping through each intermediate Sparkle release.
+   - That is patch-worthy later, but it should not outrank fresh focus/startup/move regressions on the current public build.
+
+### Local patch and proof
+
+- Local patch in progress on `main`:
+  - direct status-item interactions now cancel passive hover timing
+  - status-menu open now trusts explicit right-click intent over stale `currentEvent`
+  - app-menu suppression restore only reactivates the saved app if SaneBar is still frontmost
+- Focused proof passed locally:
+  - `xcodebuild test -project SaneBar.xcodeproj -scheme SaneBar -destination 'platform=macOS' -only-testing:SaneBarTests/HoverServiceTests -only-testing:SaneBarTests/MenuBarManagerTests -only-testing:SaneBarTests/RuntimeGuardXCTests CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO`
+  - result: `102 tests`, `0 failures`
+
+### Release call right now
+
+- Do **not** publish a new patch yet.
+- The current public build still has fresh unresolved field reports on `2.1.32`.
+- Next required proof:
+  - rerun Mini `verify`
+  - rerun staged runtime smoke / QA on the patched tree
+  - only consider a patch release if those pass and there is no new contradictory field evidence in inbox/GitHub
+
+### 2026-03-19 13:17 ET gate follow-up
+
+- Routed Mini `test_mode --release --no-logs` was still blocked after the above investigation because the `sanebar-browse-move` research lock was created at `2026-03-19T17:03:37Z`, slightly after the prior `research.md` write.
+- That block is correct behavior, not a false positive. The fix is simply to record this latest release-readiness investigation after the lock creation so the routed Mini lane can proceed.
+- Current proof already in hand before rerunning the staged app path:
+  - local focused `HoverServiceTests`, `MenuBarManagerTests`, and `RuntimeGuardXCTests` passed
+  - the same focused test selection passed on the Mini over SSH
+- Next required proof remains unchanged:
+  - staged Release launch on the Mini from the patched tree
+  - full `SANEBAR_RUN_RUNTIME_SMOKE=1 SANEBAR_RUN_STABILITY_SUITE=1 ruby ./Scripts/qa.rb` on the same patched tree
