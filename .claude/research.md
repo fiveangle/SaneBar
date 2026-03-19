@@ -1924,3 +1924,141 @@ After applying fix:
 - Next required proof remains unchanged:
   - staged Release launch on the Mini from the patched tree
   - full `SANEBAR_RUN_RUNTIME_SMOKE=1 SANEBAR_RUN_STABILITY_SUITE=1 ruby ./Scripts/qa.rb` on the same patched tree
+
+### 2026-03-19 13:31 ET startup/reset root-cause follow-up
+
+- The strongest remaining startup/reset design smell is not just bad geometry data. It is split recovery ownership:
+  - `setupStatusItem()` already applies startup recovery by calling `StatusBarController.recoverStartupPositions(...)` and then `recreateStatusItemsFromPersistedLayout(...)` when launch geometry is bad.
+  - later `schedulePositionValidation(...)` reused the same startup geometry classifier but, on the first invalid pass, it recreated items directly from persisted layout without repairing that persisted layout first.
+- That means a late validation pass could replay the poisoned persisted layout that startup recovery was supposed to correct, which matches the reset-family shape where icons look right briefly and then collapse again.
+- The same split also made runtime screen-change/manual restore validation too eager to reuse startup recovery semantics without naming the context.
+
+### Current-tree fix in progress
+
+- `MenuBarOperationCoordinator` now has an explicit `PositionValidationContext`.
+- Geometry-drift validation now chooses a dedicated `repairPersistedLayoutAndRecreate` step instead of immediately replaying the persisted layout.
+- `MenuBarManager.schedulePositionValidation(...)` now passes explicit contexts for:
+  - startup follow-up
+  - screen-parameter change
+  - manual layout restore
+- For geometry drift:
+  - startup follow-up can still escalate to autosave-version recovery after one persisted-layout repair attempt
+  - later screen-change/manual restore validation stops after one persisted-layout repair attempt instead of escalating into repeated namespace churn
+
+### Focused proof after the coordinator change
+
+- Local targeted test run passed after the change:
+  - `MenuBarOperationCoordinatorTests`
+  - `MenuBarManagerTests`
+  - `RuntimeGuardXCTests`
+- Result: `102 tests`, `0 failures`
+
+- 2026-03-19 13:33 ET: refreshed local research locks before rerunning routed Mini verification so research.md remains newer than the active lock after sync.
+
+- 2026-03-19 13:34 ET: post-lock timestamp bump after sync-research-locks so routed Mini verify sees research.md newer than research-locks.json.
+
+## 2026-03-19 13:50 ET runtime durability follow-up
+
+**Updated:** 2026-03-19 13:50 ET | **Status:** runtime proof improved, startup durability still the main open root-cause seam | **TTL:** 7d
+**Sources:** Apple docs for `NSStatusItem.autosaveName` and `NSStatusItem.behavior`, inbox `#390 #401 #387`, GitHub `#111 #113 #115 #117`, local code audit, local targeted tests, Mini staged runtime QA
+
+### Apple docs notes
+
+1. **Apple expects explicit autosave naming for multiple status items.**
+   - `NSStatusItem.autosaveName` is the system hook for saving and restoring status-item information.
+   - Apple explicitly says apps with multiple status items should set an autosave name after creating each item.
+   - That reinforces the current SaneBar design choice to use stable autosave names and to treat autosave-state corruption as a first-class recovery problem, not as incidental UI state.
+
+2. **Apple exposes behavior flags, but not a supported API for custom layout ownership.**
+   - `NSStatusItem.behavior` is just a set of allowed status-item behaviors.
+   - Apple does not document a richer system-owned layout recovery contract here.
+   - That means SaneBar has to be conservative: use autosave identity consistently, minimize mutation before live geometry exists, and only persist current-width recovery state from healthy live positions.
+
+### Fresh field evidence
+
+1. **Startup/reset family is still live in the field.**
+   - Inbox `#390`: hidden→visible moves sometimes fail, and after restart icons can collapse back into hidden.
+   - Inbox `#387`: MeetingBar repeatedly disappears from visible while already on the latest build.
+   - GitHub `#111`, `#113`, and `#115` still describe the same visible→hidden/reset family.
+
+2. **Browse/focus timing family is still live in the field.**
+   - Inbox `#401` on `2.1.32` still shows:
+     - focus leaving the current app after hover auto-hide
+     - first right-click menu flash/fail
+     - inconsistent left-click timing after linger intervals
+
+3. **Move/identity family remains real, but narrower than before.**
+   - GitHub `#117` is still open.
+   - Current tree already rejects ambiguous same-bundle moves much more safely than before, but the app still needs stronger exact-ID proof on the specific user-facing sibling pairs that reporters hit.
+
+### Fresh local / Mini findings
+
+1. **The earlier warm-state runtime smoke failure was a proof-harness bug, not a clean app disappearance.**
+   - On Mini, the first `live_zone_smoke` pass passed.
+   - The second pass originally failed with `resource_watchdog process_monitor_failed reason=process_missing` during `findIcon` browse.
+   - There was no matching crash report, and the staged SaneBar process was still present.
+   - Root cause: the smoke watchdog could fail on a transient `ps -p <pid>` miss even when the same SaneBar PID was still visible in the full process table.
+   - Fix: tolerate a transient `process_missing` only when the same PID is still visible as the expected SaneBar process.
+
+2. **After the watchdog fix, the runtime smoke cluster is materially stronger.**
+   - Mini staged runtime QA now clears:
+     - two full smoke passes
+     - warm-state browse replay
+     - focused shared-bundle exact-ID smoke for Focus + Display
+   - That removes one false red path from release gating.
+
+3. **The remaining real red path is startup durability, not browse smoke.**
+   - The Mini startup probe failed with `Missing current-width backup for width 1920`.
+   - That exposed a real gap in the app, not just in the harness:
+     - after removing the bad eager same-display reanchor, the app could launch into a healthy layout but still never backfill a current-width recovery backup
+     - then the next poisoned launch has nothing safe to restore from
+
+4. **The strongest current startup root cause is split recovery ownership plus missing post-validation backup capture.**
+   - Startup repair is still split between:
+     - `setupStatusItem()`
+     - delayed `schedulePositionValidation(...)`
+     - controller-level persisted-layout recovery
+   - A fresh startup audit confirmed the bigger smell is still split ownership, not one bad formula.
+   - The specific bug found today is narrower and fixable now:
+     - once validation declares the live layout stable, SaneBar must capture a current-width backup from that healthy live state
+     - otherwise startup recovery stays one bad launch away from ordinal reseed fallback
+
+### Concrete code changes now justified by this research
+
+1. **Keep the eager same-display reanchor removed.**
+   - Prelaunch preferred-position heuristics are not trustworthy enough to rewrite user state before live status-item geometry exists.
+
+2. **Backfill current-width display backups only after stable live validation.**
+   - Safe place: the `statusItemsNeedRecovery() == false` branch of delayed validation.
+   - That matches Apple’s autosave model better than mutating prelaunch guesses.
+
+3. **Keep the Mini runtime smoke strict, but only on real disappearance.**
+   - The smoke should fail if SaneBar actually goes away.
+   - It should not fail because one `ps -p` sample glitched while the same SaneBar PID was still plainly visible.
+
+### Proof completed after this research refresh
+
+- Local:
+  - `ruby Scripts/live_zone_smoke_test.rb` passed
+  - `xcodebuild test -project SaneBar.xcodeproj -scheme SaneBar -destination 'platform=macOS' -only-testing:SaneBarTests/StatusBarControllerTests CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` passed
+- Mini:
+  - staged runtime smoke pass 1/2 passed
+  - staged runtime smoke pass 2/2 passed after the watchdog fix
+  - focused shared-bundle smoke passed for `com.apple.menuextra.focusmode` and `com.apple.menuextra.display`
+- Still red on Mini:
+  - startup probe until the stable-layout backup backfill is synced and rechecked
+
+### Current release stance
+
+- Still **not** ready to publish a new patch.
+- Confidence is higher than before because the smoke false-positive is gone.
+- The remaining real work is the startup durability seam and then another full Mini verify + staged QA pass on that updated tree.
+
+- 2026-03-19 13:52 ET: post-lock refresh timestamp bump after `sync-research-locks`; next routed Mini run should see `research.md` newer than the refreshed browse/move lock state.
+- 2026-03-19 14:04 ET: post-green-QA timestamp bump after a full Mini QA pass with green technical results:
+  - smoke pass 1/2 green
+  - smoke pass 2/2 green
+  - focused shared-bundle smoke green
+  - startup layout probe green
+  - dedicated stability suite green
+  - remaining blockers were release-policy gates only, not runtime/test failures

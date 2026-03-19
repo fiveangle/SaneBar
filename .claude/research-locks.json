@@ -96,8 +96,8 @@
   {
     "slug": "sanebar-browse-move",
     "reason": "Repeated icon move / visibility mismatch reports. Fresh runtime research is required before more fixes in this cluster.",
-    "created_at": "2026-03-19T17:03:37Z",
-    "source_updated_at": "2026-03-19T17:03:37Z",
+    "created_at": "2026-03-19T18:07:15Z",
+    "source_updated_at": "2026-03-19T18:07:15Z",
     "source": "issue-cluster-sync",
     "app": "SaneBar",
     "threshold": 3,
