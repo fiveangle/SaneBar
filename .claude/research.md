@@ -1,5 +1,34 @@
 # SaneBar Research Cache
 
+## Move-Task Lifecycle Centralization
+
+**Updated:** 2026-03-19 | **Status:** verified | **TTL:** 14d
+**Source:** local code audit, `RuntimeGuardXCTests`, Mini routed verify, staged release smoke/probe, full Mini `qa.rb`
+
+### Verified Findings
+
+1. The move-policy work was already stronger than the move-task lifecycle. Four entry points still manually wired the same detached-task state:
+   - `moveIcon`
+   - `moveIconAlwaysHidden`
+   - `moveIconFromAlwaysHiddenToHidden`
+   - `reorderIcon`
+2. That manual lifecycle wiring was centralized into one helper:
+   - `queueDetachedMoveTask(operationName:_:)`
+   - it now owns `activeMoveTask`, `setMoveInProgress(true/false)`, and pre-drag `cancelRehide()`
+3. Awaitable move helpers also now share one gate:
+   - `waitForActiveMoveTaskIfNeeded()`
+   - this replaces repeated `if let task = activeMoveTask { _ = await task.value }` blocks
+4. This was a maintainability / correctness-seam cleanup, not a move-policy rewrite:
+   - retry targeting, ambiguity refusal, shield fallback, and classified-zone verification behavior remain the same
+5. Local proof:
+   - targeted `xcodebuild test -only-testing:SaneBarTests/RuntimeGuardXCTests` passed (`102` tests)
+6. Mini proof after the refactor:
+   - `./scripts/SaneMaster.rb verify --quiet` passed with `1000` tests
+   - staged release launch passed via `./scripts/SaneMaster.rb test_mode --release --no-logs`
+   - direct staged `Scripts/live_zone_smoke.rb` passed
+   - direct staged `Scripts/startup_layout_probe.rb` passed
+   - full `SANEBAR_RUN_RUNTIME_SMOKE=1 SANEBAR_RUN_STABILITY_SUITE=1 ruby ./Scripts/qa.rb` remained technically green and still failed only on policy blockers
+
 ## Startup / Browse / Move Regression Audit + 2.1.32 Release
 
 **Updated:** 2026-03-18 | **Status:** verified | **TTL:** 14d

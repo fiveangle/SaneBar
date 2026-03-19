@@ -3,6 +3,28 @@
 **Date:** 2026-03-18
 **Last released version:** `v2.1.32` (build `2132`)
 
+## Addendum (2026-03-19 move-task lifecycle centralization)
+
+- The move pipeline is narrower and less copy-paste fragile now:
+  - `moveIcon`, `moveIconAlwaysHidden`, `moveIconFromAlwaysHiddenToHidden`, and `reorderIcon` now all queue through one shared `queueDetachedMoveTask(...)` helper
+  - that helper is now the single owner of:
+    - `activeMoveTask` assignment/cleanup
+    - `SearchWindowController.shared.setMoveInProgress(...)`
+    - pre-drag `cancelRehide()`
+  - awaitable move helpers now also share one `waitForActiveMoveTaskIfNeeded()` gate instead of repeating the same `if let task = activeMoveTask` block
+- This change does not alter move policy; it centralizes move-task lifecycle so future move-path fixes only need one task-state implementation.
+- Local proof:
+  - targeted `xcodebuild test -only-testing:SaneBarTests/RuntimeGuardXCTests` passed (`102` tests)
+- Mini proof on the current local tree:
+  - `./scripts/SaneMaster.rb verify --quiet` passed with `1000` tests
+  - `./scripts/SaneMaster.rb test_mode --release --no-logs` staged and launched the signed `/Applications/SaneBar.app`
+  - direct `Scripts/live_zone_smoke.rb` passed on the staged release app
+  - direct `Scripts/startup_layout_probe.rb` passed on the staged release app
+  - full `SANEBAR_RUN_RUNTIME_SMOKE=1 SANEBAR_RUN_STABILITY_SUITE=1 ruby ./Scripts/qa.rb` is still technically green and still ends with policy-only blockers:
+    - cadence `<24h` since `2.1.32`
+    - open regression issues `#117`, `#115`, `#113`
+    - unconfirmed closed regression `#94`
+
 ## Addendum (2026-03-19 recovery-anchor + manual-restore hardening)
 
 - The last broad startup-reset seam was narrowed again:
