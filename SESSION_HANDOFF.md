@@ -247,6 +247,43 @@
 - `#283` GitHub Support declined ticket — human review
 - `#280` Setapp partnership inquiry — human reply
 
+## Session 58 (2026-03-19 early morning)
+
+### Done
+- Hardened the menu-bar cache layer so visibility transitions now schedule a background warmup instead of leaving the next interaction to pay the cold scan.
+- Added `AccessibilityService.CacheWarmupReason` plus delayed warmup scheduling in `Core/Services/AccessibilityService.swift` and `Core/Services/AccessibilityService+Cache.swift`.
+- Updated `HidingService` and the always-hidden separator structural repair path to invalidate with explicit warmup reasons.
+- Added regression coverage:
+  - `Tests/AccessibilityServiceTests.swift`
+  - `Tests/RuntimeGuardXCTests.swift`
+
+### Proven Result
+- Mini `verify` passed with `987` tests.
+- Mini staged release `qa.rb` is technically green again; only release-policy blockers remain (`#117`, `#115`, `#113`, unconfirmed `#94`, and <24h cadence).
+- Real Mini release-app timings improved on the exact bad path:
+  - baseline `list icon zones`: `0.102s`
+  - after `toggle` + `0.5s`: `0.151s`
+  - after `toggle` + `1.5s`: `0.151s`
+- Before this change, the same post-toggle path was taking roughly `1.2s` to `2.8s`.
+
+### Current Read
+- The beachball/stall complaint was not explained by dead Mini junk at this point.
+- The remaining cold-path issue was in SaneBar’s own cache invalidation behavior after reveal transitions.
+- The new warmup path did **not** break browse, move, always-hidden, startup recovery, or shared-bundle exact-ID flows in Mini E2E.
+
+### Key Files Changed
+- `Core/Services/AccessibilityService.swift`
+- `Core/Services/AccessibilityService+Cache.swift`
+- `Core/Services/HidingService.swift`
+- `Core/MenuBarManager.swift`
+- `Tests/AccessibilityServiceTests.swift`
+- `Tests/RuntimeGuardXCTests.swift`
+
+### Next Session Priorities
+1. Watch whether the beachball complaint is materially reduced in real use after this warmup change.
+2. If there is still visible lag, profile the remaining cold path around `listMenuBarItemsWithPositions()` and reveal-triggered relayout rather than patching blindly.
+3. Only consider a new release after the regression-issue policy blockers are honestly cleared.
+
 ### Key Files Changed
 - `Core/Services/AccessibilityService+Interaction.swift`
 - `UI/SearchWindow/SearchWindowController.swift`
