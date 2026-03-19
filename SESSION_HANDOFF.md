@@ -3,6 +3,36 @@
 **Date:** 2026-03-18
 **Last released version:** `v2.1.32` (build `2132`)
 
+## Addendum (2026-03-19 recovery-anchor + manual-restore hardening)
+
+- The last broad startup-reset seam was narrowed again:
+  - init-time display-reset recovery now prefers a launch-safe current-display anchor instead of dropping straight to bare ordinal seeds
+  - corruption migration now prefers the same launch-safe current-display anchor before any ordinal fallback
+  - `recoverStartupPositions(alwaysHiddenEnabled:)` now prefers a launch-safe current-display anchor before ordinal fallback
+  - `recreateItemsWithBumpedVersion()` now prefers a launch-safe current-display anchor when there is no current-width backup or reanchorable persisted pair
+- The coordinator-owned restore path is also stricter now:
+  - `MenuBarOperationCoordinator.manualLayoutRestoreRequest` no longer routes healthy snapshots through `repairPersistedLayoutAndRecreate`
+  - healthy manual restore now uses `.recreateFromPersistedLayout(nil)`
+  - unhealthy manual restore still uses `.repairPersistedLayoutAndRecreate(reason)`
+- New behavior tests were added for:
+  - init display-reset fallback without backup
+  - startup recovery fallback without backup
+  - autosave-bump fallback without backup
+  - migration/upgrade corruption cases reanchoring to launch-safe recovery positions
+  - healthy vs unhealthy manual restore coordinator behavior
+- Mini proof on the current local tree:
+  - `./scripts/SaneMaster.rb verify --quiet` passed with `1000` tests
+  - `./scripts/SaneMaster.rb test_mode --release --no-logs` staged and launched the signed `/Applications/SaneBar.app`
+  - direct `Scripts/live_zone_smoke.rb` passed on the staged release app
+  - direct `Scripts/startup_layout_probe.rb` passed on the staged release app
+  - full `SANEBAR_RUN_RUNTIME_SMOKE=1 SANEBAR_RUN_STABILITY_SUITE=1 ruby ./Scripts/qa.rb` is technically green on runtime/stability and now shows only release-policy blockers
+- Current remaining QA blockers are policy-only, not runtime failures:
+  - cadence `<24h` since `2.1.32`
+  - open regression issues `#117`, `#115`, `#113`
+  - unconfirmed closed regression `#94`
+- `scripts/qa.rb` was updated to require the new migration regression title:
+  - `Migration reanchors positions when legacy always-hidden position is corrupted`
+
 ## Addendum (2026-03-19 runtime hardening follow-up)
 
 - Current local tree verification on the Mini is green:
