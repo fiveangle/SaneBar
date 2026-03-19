@@ -2062,3 +2062,84 @@ After applying fix:
   - startup layout probe green
   - dedicated stability suite green
   - remaining blockers were release-policy gates only, not runtime/test failures
+
+## March 19 Architecture Refresh: Centralized Recovery Ownership
+
+**Updated:** 2026-03-19 | **Status:** verified | **TTL:** 7d
+**Sources:** Apple docs (`NSStatusItem.autosaveName`, `NSScreen.auxiliaryTopRightArea`, `NSApplication.ActivationPolicy.accessory`, `Passing control from one app to another with cooperative activation`, `NSWorkspace.applicationUserInfoKey`), GitHub issues `#111 #113 #115 #116 #117 #119`, local code/tests (`MenuBarManager`, `MenuBarOperationCoordinator`, `StatusBarController`), recent git history
+
+### Verified Findings
+
+1. **Apple’s contract still favors one autosave-backed recovery owner, not multiple independent repair ladders.**
+   - `NSStatusItem.autosaveName` is explicitly the unique name for saving and restoring status-item information.
+   - That means replaying bad persisted layout state before validation is the wrong model; the app should sanitize one authoritative recovery path before recreating items.
+
+2. **The notch-safe geometry model we are using is still aligned with Apple’s screen APIs.**
+   - `NSScreen.auxiliaryTopRightArea` remains the right boundary signal for the unobscured top-right region.
+   - So the remaining reset bug is not “we used the wrong Apple geometry API.” It is state ownership and persistence replay.
+
+3. **Browse/focus should still follow request-based activation, not focus theft.**
+   - Apple’s cooperative activation guidance says activation is a request, not a command.
+   - `NSApplication.ActivationPolicy.accessory` also matches the no-Dock, no-menu-bar app shape SaneBar already uses.
+   - `NSWorkspace.applicationUserInfoKey` remains the correct app-activation signal for app-change handling.
+
+4. **Fresh GitHub evidence proves the startup/reset family is still live on `2.1.32`.**
+   - `#111` was updated on 2026-03-19 with a fresh `2.1.32` repro.
+   - The new report is important because live geometry at repro time looks sane (`separatorOriginX: 1223`, `mainIconLeftEdgeX: 1283` on width `1512`) while persisted prefs still show `main: 180`, `separator: 211`.
+   - That means the remaining failure is not just “bad live placement on launch.” It is stale persisted recovery state staying authoritative longer than it should.
+
+5. **The open-issue cluster is now clearer.**
+   - `#111`, `#113`, and `#115` are still the same reset/persistence family.
+   - `#116` has no fresh public post-`2.1.32` repro yet, so the browse/focus hardening looks better but still needs reporter confirmation.
+   - `#117` is still underproved for the exact Wi-Fi/Battery same-bundle pair; current Mini smoke only proves exact-ID safety for `Focus` and `Display`.
+   - `#119` is unrelated release/update flow work and should stay out of this recovery cluster.
+
+6. **The root cause is now narrower and more specific than “the whole app architecture is bad.”**
+   - The real defect was split recovery ownership across startup recovery, delayed validation, and manual restore.
+   - Before today’s refactor, those paths could each plan different recovery actions over the same persisted layout state.
+   - That is the patch-fragile seam behind the recurring reset family.
+
+7. **Today’s refactor materially improves that root cause.**
+   - `MenuBarManager` startup recovery, delayed validation, and manual restore now all route through `MenuBarOperationCoordinator.statusItemRecoveryAction(...)`.
+   - Execution of the chosen action is centralized in `executeStatusItemRecoveryAction(...)`.
+   - Manual restore no longer directly replays persisted layout first; it now goes through the same recovery planner and sanitization path as other recovery contexts.
+
+8. **The controller is still the remaining long-tail seam.**
+   - `StatusBarController.recoverStartupPositions(...)` still falls back to ordinal reseeding if there is no safe current-width backup and no reanchor candidate.
+   - That is now a narrower fallback seam, not the whole recovery architecture, but it is still the last place where “good enough” recovery can degrade into a broad reset.
+
+9. **Current proof is strong for the architectural change, but not complete enough to close the public issues yet.**
+   - Targeted suites passed after the refactor:
+     - `MenuBarOperationCoordinatorTests`
+     - `RuntimeGuardXCTests`
+     - `StatusBarControllerTests`
+     - `ReleaseRegressionTests`
+     - `MenuBarManagerTests`
+     - `MenuBarSearchDropXCTests`
+     - `SecondMenuBarDropXCTests`
+   - The broader stability subset also passed on direct rerun after the earlier transient failure.
+   - Routed Mini `verify` was blocked only by the project’s research gate, not by a compile/test failure.
+
+### Concrete code changes now justified by this research
+
+1. **Keep recovery planning centralized in the coordinator.**
+   - Startup, delayed validation, and manual layout restore should continue to use the same `statusItemRecoveryAction(...)` decision path.
+
+2. **Do not reintroduce direct persisted-layout replay from manual restore.**
+   - That was the old poison-replay path.
+
+3. **Keep manual restore and startup follow-up behavior tests, and add one more integrated runtime proof next.**
+   - Missing proof still worth adding: a full relaunch/runtime case showing that a repaired startup layout cannot be undone by later validation or manual restore replay.
+
+4. **Do not claim `#117` fully fixed until the exact reported pair is exercised.**
+   - Add focused Wi-Fi/Battery same-bundle Mini smoke before closing that issue family.
+
+### Proof completed after this research refresh
+
+- Local:
+  - `xcodebuild test -project SaneBar.xcodeproj -scheme SaneBar -destination 'platform=macOS' -only-testing:SaneBarTests/MenuBarOperationCoordinatorTests -only-testing:SaneBarTests/RuntimeGuardXCTests -only-testing:SaneBarTests/StatusBarControllerTests CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` passed
+  - `xcodebuild test -project SaneBar.xcodeproj -scheme SaneBar -destination 'platform=macOS' -only-testing:SaneBarTests/ReleaseRegressionTests -only-testing:SaneBarTests/MenuBarManagerTests -only-testing:SaneBarTests/MenuBarSearchDropXCTests -only-testing:SaneBarTests/SecondMenuBarDropXCTests CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` passed
+- Mini / routed lanes:
+  - `verify` is ready to rerun now that this research note is newer than the active browse/move lock state
+
+- 2026-03-19 14:27 ET: post-architecture-refresh timestamp bump after fresh Apple-doc + GitHub + local-code reconciliation and passing targeted recovery suites.
