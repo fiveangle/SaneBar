@@ -3,6 +3,31 @@
 **Date:** 2026-03-18
 **Last released version:** `v2.1.32` (build `2132`)
 
+## Addendum (2026-03-19 runtime hardening follow-up)
+
+- Current local tree verification on the Mini is green:
+  - `./scripts/SaneMaster.rb verify --quiet` passed with `984` tests
+  - `./scripts/SaneMaster.rb test_mode --release --no-logs` staged and launched the signed `/Applications/SaneBar.app`
+  - full `SANEBAR_RUN_RUNTIME_SMOKE=1 SANEBAR_RUN_STABILITY_SUITE=1 ruby ./Scripts/qa.rb` passed every technical runtime/stability check again
+- The only red lines left in the full QA run are governance-only:
+  - cadence `<24h` since `2.1.32`
+  - open regression issues `#117`, `#115`, `#113`
+  - unconfirmed closed regression `#94`
+- Runtime hardening completed in this pass:
+  - `list icon zones` now prefers cached classified zones before forcing a refresh
+  - release smoke now requires at least one movable candidate instead of allowing a soft skip
+  - browse focus proof now captures frontmost app state including window title, not just bundle id
+  - always-hidden and always-hidden→hidden move flows now use `actionableMoveResolutionSafety(...)` and refuse classified-zone fallback when identity is ambiguous
+- Measured AppleScript responsiveness improvement on the Mini after staging the fresh build:
+  - `layout snapshot`: ~`0.09s` avg both before and after
+  - `list icon zones` before fix: avg ~`0.67s`, max `2.536s`
+  - `list icon zones` after fix: avg ~`0.087s`, max ~`0.089s`
+- Mini hygiene finding during this pass:
+  - a stale orphan `SaneSync/scripts/inference_server.py` process (parent `1`, ~`2 GB` RSS, ~`15h` old) was found and killed before the final QA/timing runs
+- Current real release posture:
+  - technically much stronger than `2.1.32`
+  - not ready to publish without either governance override or fresh reporter confirmation on the still-open regression family
+
 ## Addendum (2026-03-18 release 2.1.32)
 
 - `v2.1.32` published at `2026-03-18T23:03:28Z`:
