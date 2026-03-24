@@ -1,7 +1,32 @@
 # Session Handoff — SaneBar
 
-**Date:** 2026-03-18
-**Last released version:** `v2.1.32` (build `2132`)
+**Date:** 2026-03-23
+**Last released version:** `v2.1.33` (build `2133`)
+
+## Addendum (2026-03-23 release preflight fallback)
+
+- The signed mini release lane is technically green again on the current local tree:
+  - `./scripts/SaneMaster.rb verify --quiet` passed with `1026` tests
+  - `./scripts/SaneMaster.rb release_preflight` passed the real runtime path:
+    - default browse smoke `2/2`
+    - startup layout probe
+    - focused shared-bundle exact-ID move smoke for `Focus` + `Display`
+- The old startup/reset runtime bug is not what blocks release anymore.
+- The release-preflight failure had become a smoke-harness policy mismatch:
+  - the mini's live movable set was Apple-heavy
+  - default move-candidate policy filtered every candidate out
+  - release preflight was failing early with `No movable candidate icon found`
+- Fix kept the default smoke conservative and changed `scripts/qa.rb` to:
+  - treat that exact no-candidate failure as fixture-policy fallout
+  - keep the default smoke for browse/layout coverage
+  - defer move coverage to the existing shared-bundle exact-ID smoke
+  - still fail if the fallback exact-ID set is empty or the focused smoke fails
+- Added coverage for that behavior in:
+  - `scripts/qa_test.rb`
+  - `Tests/RuntimeGuardXCTests.swift`
+- Current release posture:
+  - technically strong enough for a new build
+  - still blocked by governance only: open regression issues `#123`, `#117`, `#115`, `#113`
 
 ## Addendum (2026-03-19 move-task lifecycle centralization)
 

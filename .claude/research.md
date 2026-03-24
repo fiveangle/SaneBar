@@ -1,5 +1,265 @@
 # SaneBar Research Cache
 
+## Browse/Move Runtime + Tint Recheck
+
+**Updated:** 2026-03-23 | **Status:** in progress | **TTL:** 7d
+**Source:** Apple docs on `NSStatusItem` / `NSStatusBar` / `NSAppearance`, web/competitor review, GitHub issues `#123` / `#122` / `#117` / `#115` / `#113`, mini `./scripts/SaneMaster.rb release_preflight`, local `MenuBarAppearanceServiceTests`
+
+### Verified Findings
+
+1. Fresh docs/web review did not reveal a new fundamental Apple API that would replace the current Accessibility-driven menu bar move model.
+   - Apple still documents `NSStatusItem` / `NSStatusBar` for your own extras, not for repositioning third-party extras.
+   - Competitor posture is still effectively the same: automate with Accessibility, or simplify to manual user drag.
+2. The current open GitHub picture is still one main runtime family plus one separate tint bug:
+   - runtime/reset/move family: `#123`, `#117`, `#115`, `#113`
+   - separate appearance bug: `#122`
+3. Fresh mini `release_preflight` on `2026-03-23` stayed functionally strong:
+   - default browse/layout smoke passed
+   - shared-bundle exact-ID smoke functionally passed `Focus` and `Display`
+   - hidden/visible move actions passed
+   - always-hidden move actions passed
+4. The current technical blocker is not a functional move failure. It is a resource-budget overage during the focused shared-bundle smoke:
+   - resource watchdog reported `avgCpu=15.1%`
+   - current gate is `15.0%`
+   - that is close enough that it may be measurement noise, but it is still a red preflight today until rechecked
+5. Fresh tint work is narrow and test-backed:
+   - `MenuBarAppearanceService` now resolves `NSApp.effectiveAppearance` to a concrete light/dark appearance and applies it to both the overlay window and its content view
+   - targeted `MenuBarAppearanceServiceTests` passed locally (`29` tests)
+6. Tint confidence is not release-grade yet because visual runtime proof is still missing:
+   - issue `#122` reports the black-tint regression on `2.1.33`, especially when opening Finder or Firefox
+   - local visual launch was correctly blocked by the browse/move research lock until this note was refreshed
+7. Best current read:
+   - move correctness still looks strong enough for the next patch
+   - release confidence is currently held back by two things only: the `15.1%` shared-bundle smoke overage and missing visual signoff on the tint fix
+   - do not ship until at least one fresh runtime recheck plus visual tint verification is green
+## Release Preflight Empty-Candidate Fallback
+
+**Updated:** 2026-03-23 | **Status:** verified on mini | **TTL:** 14d
+**Source:** signed mini `./scripts/SaneMaster.rb release_preflight`, focused `live_zone_smoke.rb` for `Focus` + `Display`, `./scripts/SaneMaster.rb verify --quiet`, local code audit
+
+### Verified Findings
+
+1. By 2026-03-23 the startup/reset runtime bug was no longer what blocked release preflight on the mini.
+2. The signed release lane passed:
+   - default browse smoke `2/2`
+   - startup layout probe
+   - focused shared-bundle move smoke for `com.apple.menuextra.focusmode` and `com.apple.menuextra.display`
+   - full `./scripts/SaneMaster.rb verify --quiet` with `1026` tests
+3. The remaining runtime failure before this pass was a harness-policy mismatch:
+   - default release smoke required a movable candidate
+   - the mini's live movable set was Apple-heavy
+   - the conservative move denylist filtered every default candidate out
+4. The safe fix was in `scripts/qa.rb`, not app code:
+   - treat `No movable candidate icon found (need at least one hidden/visible icon).` as fixture-policy fallout
+   - keep the default smoke conservative for browse/layout coverage
+   - defer move coverage to the existing shared-bundle exact-ID smoke
+   - still fail if the fallback shared-bundle candidate set is empty or the focused smoke fails
+5. This keeps release gating meaningful:
+   - it does not soft-pass missing move coverage
+   - it switches to a stricter exact-ID move proof on the same signed app
+6. After the fix, `release_preflight` was technically green again and only the open-regression governance gate remained (`#123`, `#117`, `#115`, `#113`).
+
+## Dead Code Cleanup Pass
+
+**Updated:** 2026-03-21 | **Status:** verified | **TTL:** 14d
+**Source:** `periphery scan`, targeted `rg` reference checks, local code audit, `xcodegen generate`, `./scripts/SaneMaster.rb verify --quiet`
+
+### Verified Findings
+
+1. A narrow dead-code cleanup was safe and passed full verification.
+2. Removed because they had zero references in source and tests:
+   - `UI/SearchWindow/MenuBarAppGrid.swift`
+   - `UI/SearchWindow/MenuBarSearchStatusViews.swift`
+   - `UI/Settings/Components/SpaceAnalyzerView.swift`
+3. Removed because they were private or local dead helpers with no call sites:
+   - `MenuBarManager.onboardingPopover`
+   - `MenuBarManager.waitForAlwaysHiddenSeparatorX(...)`
+   - `MenuBarManager.reorderIconAndWait(...)`
+   - `MenuConfiguration.toggleAction` and its dead test/setup plumbing
+4. Removed small orphaned UI properties and helpers after confirming no references:
+   - `MenuBarSearchView.Mode.symbolName`
+   - `MenuBarSearchView.modeBinding`
+   - unused accent/color helpers in search/settings UI
+   - `ChromeMenuButtonLabel`
+   - `ChromeTinyIconBadge`
+   - `SmartGroupTab.icon`
+5. Project state after cleanup:
+   - `xcodegen generate` succeeded
+   - `./scripts/SaneMaster.rb verify --quiet` passed with `1026` tests
+   - net code movement for this cleanup set was heavily negative (`~584` lines removed vs `~118` added from unrelated active move-fix work in the tree)
+6. Important leftovers intentionally stayed:
+   - `SaneAppMover` is release-only and Periphery under-counts that path
+   - many protocol warnings are test seam false positives because tests still rely on them
+   - several `RunningApp`, `SearchService`, and AppleScript helpers are used only by tests or look like compatibility surface, not safe blind deletions
+7. A second deeper pass was also safe and removed the remaining clearly dead branches:
+   - deleted the unwired external status-item injection path in `MenuBarManager` (`usingExternalItems` + `useExistingItems(...)`)
+   - simplified external-monitor hide policy to the live runtime path (`shouldSkipHide(...)`) and removed the dead manual-origin scaffold
+   - removed `RunningApp` thumbnail/control-center convenience code that had no production callers (`iconThumbnail`, `thumbnail(size:)`, `withThumbnail(size:)`, `controlCenterItem(...)`, `isControlCenterItem`, `preferredSFSymbol`)
+   - updated the few UI/test/doc call sites that still mentioned those dead paths
+8. Project state after the deeper pass:
+   - `./scripts/SaneMaster.rb verify --quiet` passed with `1020` tests
+   - test count dropped from `1026` to `1020` because six tests only covered the removed dead paths
+   - targeted diff for the second pass was strongly negative (`264` lines removed vs `60` inserted)
+
+## Issue #117 Fresh-Geometry Recheck Beats Baseline
+
+**Updated:** 2026-03-21 | **Status:** verified | **TTL:** 14d
+**Source:** clean baseline compare on mini signed Release, focused `live_zone_smoke.rb` for Display, unified logs with `--info --debug`, immediate repeat run, `./scripts/SaneMaster.rb verify --quiet`
+
+### Verified Findings
+
+1. The current kept baseline is green, but still pays for stale visible geometry with extra drag work:
+   - focused Display smoke passed end-to-end
+   - log window `20:14:46` -> `20:15:40` showed `2` `Move verification failed`
+   - the same window showed `1` standard visible retry and `1` always-hidden visible retry
+   - there were `0` shield fallback recoveries and `0` fresh-geometry accepts in baseline
+2. The smallest root-cause experiment was then added:
+   - keep retries, shield fallback, and classified fallback unchanged
+   - before retrying a visible-return move, do one narrow fresh separator recheck
+   - only accept if the miss is near the stale separator and the separator has actually shifted left
+3. The experiment stayed green on the same signed Release path:
+   - `./scripts/SaneMaster.rb verify --quiet` passed with `1026` tests
+   - focused Display smoke passed end-to-end on the staged `/Applications/SaneBar.app`
+4. The before/after compare is materially better:
+   - experiment window `20:18:52` -> `20:19:50` still had `2` `Move verification failed`
+   - but it had `0` standard visible retries, `0` always-hidden visible retries, `0` shield fallback recoveries
+   - instead, both stale misses turned into `2` `Visible move accepted after fresh geometry recheck`
+5. The immediate repeat held:
+   - second experiment window `20:20:23` -> `20:21:20` again had `2` stale visible failures
+   - again it had `0` visible retries, `0` always-hidden visible retries, `0` shield fallback recoveries
+   - again it had `2` fresh-geometry acceptances
+6. The recurring stale geometry signature is stable across runs:
+   - stale separator `1692`
+   - fresh separator `1657`
+   - landing midpoint `1675.5`
+   - that is consistent with the separator moving during relayout while the dragged icon is already in the correct final visible zone
+7. Best current read:
+   - this is the right level of fix for bug `#117`
+   - it is more fundamental than another retry because it corrects verification geometry instead of dragging again
+   - it is still narrow enough that we are not rewriting the move system or deleting proven fallbacks
+
+## Issue #117 Clean Mini Release Recheck
+
+**Updated:** 2026-03-21 | **Status:** verified | **TTL:** 14d
+**Source:** mini signed Release launch, focused `live_zone_smoke.rb`, mini unified logs with `--info --debug`, local code audit
+
+### Verified Findings
+
+1. The earlier “app quit” evidence was partially tainted by mixed lanes on the mini:
+   - one logged death was a separate DerivedData debug app (`com.sanebar.dev`), not the staged `/Applications/SaneBar.app` release build
+   - later repeat noise also overlapped with a separate `xcodebuild test` lane on the mini
+2. A clean signed Release launch on the mini did keep the real staged app alive:
+   - `/Applications/SaneBar.app/Contents/MacOS/SaneBar --sane-no-keychain` was the live process before the focused smoke
+3. The strict focused smoke was blocked once by launch idle budget before any move work:
+   - `launch_idle_budget_exceeded avgCpu=16.0% > 5.0% peakCpu=27.0% > 15.0%`
+   - that failure says more about runtime-budget noise than move correctness
+4. Re-running the same focused Display smoke with only the idle thresholds relaxed allowed the move path itself to run cleanly:
+   - hidden/visible passed
+   - always-hidden passed
+   - candidate set passed
+   - full smoke passed in `42.1s`
+5. The clean mini log window proved the new move behavior directly:
+   - `1` `Move verification failed` hit on the classic stale visible case (`separatorX=1692`, `afterMidX=1675.5`)
+   - immediately followed by `1` `Visible move accepted after post-layout geometry recheck` with `freshSeparatorX=1657`
+   - `0` standard visible retries
+   - `0` shield fallback recoveries
+6. The clean mini log window showed no app-driven quit path for the staged release app:
+   - `0` `applicationShouldTerminate requested`
+   - `0` `applicationWillTerminate received`
+   - the release app stayed alive after the successful smoke
+7. Best current read:
+   - the fresh-geometry visible acceptance path is the right fix for the move bug itself
+   - remaining instability evidence is better explained by mini runtime-budget noise and overlapping debug/test lanes than by the move fix regressing the release app
+
+## Issue #117 Visible Return Fresh-Geometry Fix Extended to Always-Hidden Path
+
+**Updated:** 2026-03-21 | **Status:** verified | **TTL:** 14d
+**Source:** local code experiment, `./scripts/SaneMaster.rb verify --quiet`, signed Mini `test_mode --release --no-logs`, focused Display smoke loops, unified logs
+
+### Verified Findings
+
+1. The stale-separator acceptance fix is best implemented as a narrow post-layout geometry recheck, not as a new drag path or a target-overlap rewrite.
+2. The first cut only covered the regular hidden->visible path. That explained why some live Display failures still had no matching acceptance log.
+3. Extending the same `verifyVisibleMoveWithFreshGeometry(...)` check into `moveIconAlwaysHidden(... toAlwaysHidden: false)` closed that gap.
+4. Current local proof:
+   - `./scripts/SaneMaster.rb verify --quiet` passed with `1028` tests after the final source-guard update
+   - signed Release build staged and launched successfully via `./scripts/SaneMaster.rb test_mode --release --no-logs`
+5. Best focused runtime compare window on the signed Mini (`2026-03-21 19:59:43` -> `20:02:16` local) showed:
+   - `7` `Move verification failed` hits
+   - `7` `Visible move accepted after post-layout geometry recheck` hits
+   - `0` `Retrying move once with session tap` hits
+   - `0` `Shield fallback returned` hits
+6. That is materially better than the prior kept baseline for this Display path:
+   - baseline still depended on visible retry recovery (`5` visible failures + `5` retries in the earlier accepted comparison window)
+   - current fix turns every observed stale visible failure in the window into an immediate fresh-geometry acceptance instead of an extra drag
+7. Focused smoke loop result is mixed only on the idle-budget gate, not on move correctness:
+   - one pass was fully green end-to-end
+   - another pass completed both hidden/visible and always-hidden move actions, then failed only on post-smoke idle budget
+   - later passes sometimes failed the launch idle budget before candidate work started
+8. The honest interpretation is:
+   - the move bug itself now looks solved on both visible-return paths
+   - the remaining red is a separate runtime-budget / cache-warmup timing issue in the smoke harness or post-action settle behavior, not stale separator verification
+
+### Shipping stance
+
+- Worthy for the next move-bug update: **yes**, for bug #117 specifically.
+- Still worth keeping an eye on: the Mini smoke idle-budget noise, because it can still make back-to-back runtime loops look red even when move correctness is green.
+
+## Issue #117 Visible Target Experiment Rejected
+
+**Updated:** 2026-03-21 | **Status:** verified | **TTL:** 14d
+**Source:** mini signed Release smoke, unified logs, local code experiment, `./scripts/SaneMaster.rb verify --quiet`
+
+### Verified Findings
+
+1. A controlled experiment increased visible-lane insertion overlap in `AccessibilityService+Interaction.swift` from `max(6, min(18, iconWidth * 0.35))` to `max(12, min(28, iconWidth * 0.7))`.
+2. The experiment stayed superficially green:
+   - signed Release build launched on the mini
+   - focused 5-pass warm smoke for `Focus` + `Display` still passed
+3. The logs proved the hypothesis was wrong:
+   - baseline current-fix window (`2026-03-21 11:23:30` to `11:30:10`) had `10` `Move verification failed` hits
+   - experiment window (`2026-03-21 13:09:18` to `13:16:45`) had `12` hits
+4. The miss geometry stayed effectively the same:
+   - baseline signature: `separator-after = 27.0`, `separator-mid = 16.5`
+   - experiment signature: mostly `separator-after = 27.0`, `separator-mid = 16.5`, with two hits at `28.0` / `17.0`
+5. That means the visible target moved, but the landing error moved with it. The root cause is not simply that the first visible target sits too close to the separator.
+6. The experiment was rolled back immediately:
+   - reverted only the insertion-overlap change and matching test expectations
+   - kept the proven current fix: visible shield hardening in `MenuBarManager+IconMoving.swift` plus the `9.0s` AppleScript move timeout
+7. Post-rollback `./scripts/SaneMaster.rb verify --quiet` passed with `1026` tests.
+
+## Ellery 2.1.32 Evidence vs 2.1.33 Hover / Focus / Click Timing
+
+**Updated:** 2026-03-20 | **Status:** verified | **TTL:** 7d
+**Source:** Apple docs already referenced in prior runtime notes (`NSApplication.ActivationPolicy.accessory`, `NSWindow.hidesOnDeactivate`), inbox thread `#401`, GitHub issue `#116`, local code audit, focused local tests
+
+### Verified Findings
+
+1. Ellery's latest report on `2.1.32` is not vague; it contains three specific behaviors:
+   - focus leaves the active app after hover reveal auto-hides
+   - first right-click can flash/fail
+   - left-click hide/show timing feels inconsistent when hover is enabled
+2. His diagnostics match the hover-driven runtime path directly:
+   - `showOnHover=true`
+   - `showOnScroll=true`
+   - `autoRehide=true`
+   - external display active (`LG Ultra HD`)
+   - no browse activation was in progress in the diagnostic snapshot
+3. `2.1.33` directly targets the first and third complaints:
+   - passive hover reveals no longer reuse the inline app-menu suppression path
+   - restore now goes through `restoreApplicationMenusIfNeeded(reason: "passiveReveal")`
+   - explicit status-item interactions call `hoverService.noteExplicitStatusItemInteraction()`, which cancels stale hover timers before click handling
+4. `2.1.33` also continues the earlier fix for the second complaint:
+   - explicit status-menu right-click opens are no longer allowed to depend on stale `NSApp.currentEvent`
+   - browse-panel right-click fallback remains blocked from reactivating another app/workspace
+5. Current local guard coverage maps to his report closely enough to justify a retest ask:
+   - `MenuBarManagerTests` checks that passive hover reveals do not trigger inline app-menu suppression and that saved focus is only restored if SaneBar is still frontmost
+   - `ReleaseRegressionTests` keeps the left/right/option click routing contract explicit
+   - `RuntimeGuardXCTests` requires wake-aware validation cancellation and passive-reveal restoration guards to remain in source
+6. Confidence is improved, but not absolute:
+   - I do not have a same-host reproduction of Ellery's exact 3-screen metronome click cadence on `2.1.33`
+   - the honest support stance is "high-confidence retest requested," not "guaranteed fixed"
+
 ## Browse / Move / Startup Follow-up Hardening
 
 **Updated:** 2026-03-19 | **Status:** verified | **TTL:** 14d
@@ -2304,3 +2564,147 @@ After applying fix:
 
 2. **The remaining blocker is field confirmation, not an open local red lane.**
    - Current routed `qa.rb` warnings are governance-only (`#117`, `#115`, `#113`, and old close `#94`), not build/test/runtime failures.
+
+## March 21 Issue #117 Warm Visible Move Root Cause | Updated: 2026-03-21 | Status: verified | TTL: 3d
+
+**Sources:** local code (`AccessibilityService+Interaction.swift`, `MenuBarManager+IconMoving.swift`, `live_zone_smoke.rb`), Mini staged `Release` app, focused required-ID smoke for `com.apple.menuextra.display`, Mini unified logs
+
+### Verified Findings
+
+1. **The recurring warm visible-move miss is a stale-separator verification problem, not a generic weak drag.**
+   - In the stable baseline, the same visible move repeatedly logged:
+     - stale move inputs: `separatorX=1692`, `visibleBoundaryX=1694`
+     - post-drag icon: `afterMidX=1675.5`
+   - Fresh Mini geometry snapshots taken around the same move showed:
+     - pre-drag live separator right edge: `1694`
+     - post-drag live separator right edge: `1657`
+     - live visible boundary remained `1694`
+   - So the icon lands on the correct side of the *fresh* separator, but fails against the stale pre-drag separator.
+
+2. **The separator itself shifts left during hidden/always-hidden -> visible moves.**
+   - Baseline repeated this exact pattern over multiple passes:
+     - visible pre-move snapshot used `targetSeparatorX=1692`
+     - post-failure live separator became `1657`
+     - retry re-resolved to `1657` and then succeeded
+   - This explains why the current narrow fix works: the retry is not “trying harder,” it is using the corrected separator after the layout shift.
+
+3. **A direct “accept success after fresh separator recheck” experiment proved the hypothesis but was not stable enough to keep.**
+   - Experimental behavior:
+     - successful single-pass proof replaced old failure logs with:
+       - `Visible move accepted after fresh separator recheck: staleSeparatorX=1692, freshSeparatorX=1657, afterMidX=1675.5`
+     - the old internal false-negative lines disappeared in that pass
+   - But the broader smoke result was worse than baseline:
+     - one focused run failed with `Icon 'com.apple.menuextra.display' not found`
+     - one 5-pass warm loop later failed on pass 3 with `Timeout waiting for ... Display to reach zone hidden`
+   - Because the stable baseline had already passed 5/5 warm Display runs, this experiment is not shippable as-is.
+
+### Best current answer
+
+1. **Keep the existing narrow hardening and do not ship the fresh-separator acceptance patch.**
+   - The current baseline remains the safer production state.
+
+2. **Treat the true root cause as verified.**
+   - The bug family is fundamentally about separator geometry changing during the move, especially on hidden -> visible transitions.
+
+3. **The next fundamental fix should happen at the move-state / verification design level, not as another inline acceptance shortcut.**
+   - Good candidates for the next pass:
+     - verify visible completion against a stable post-layout classification API instead of the pre-drag separator
+     - or explicitly model the separator shift during hidden -> visible transitions so target + verification use the same lane geometry
+
+## March 21 Issue #117 Manager-Level Early Classification Experiment | Updated: 2026-03-21 | Status: rejected | TTL: 3d
+
+### Summary
+
+I tested a narrower follow-up hypothesis: keep the drag layer unchanged, but in `MenuBarManager.moveIcon(...)` accept visible success early if a fresh classified-zone refresh already showed the exact item back in the visible lane after the first low-level verification failure. This was cleaner on paper than the rolled-back low-level fresh-separator acceptance because it reused the existing classified-zone proof path.
+
+### What I changed for the experiment
+
+- Added an early visible-only classified-zone acceptance check between the first `moveMenuBarIcon(...)` failure and the standard session retry.
+- Added a distinct log line: `Visible move accepted after early classification verification`.
+- Updated `RuntimeGuardXCTests` to allow that visible-only early acceptance path.
+
+### What I verified
+
+1. `./scripts/SaneMaster.rb verify --quiet` still passed with the experiment in place.
+2. Signed `Release` app was staged and launched on the mini at `/Applications/SaneBar.app`.
+3. Focused required-ID Display smoke had to be rerun with the same explicit target env the real runtime gate uses:
+   - `SANEBAR_SMOKE_APP_PATH=/Applications/SaneBar.app`
+   - `SANEBAR_SMOKE_PROCESS_PATH=/Applications/SaneBar.app/Contents/MacOS/SaneBar`
+4. Once the harness was pointed at the right process, the first full Display pass succeeded end to end.
+
+### Why it is rejected
+
+1. **The new path did not actually fire in the live Display case.**
+   - Mini unified logs for the experiment window still showed only the old failure pattern:
+     - `Move verification failed ... separatorX=1692 ... afterMidX=1675.5`
+   - There were **zero** `Visible move accepted after early classification verification` hits.
+   - That means the fresh classified-zone refresh was not proving success early in the exact case we care about.
+
+2. **The warm loop still destabilized before it produced a better comparison window.**
+   - First corrected focused pass was green.
+   - The next warm run later ended with `process_missing`, and system logs showed the release app process `35315` exited at `2026-03-21 19:09:10 EDT` with `workspace client connection invalidated` / `SIGKILL(9)`.
+   - There was no crash report, so I cannot attribute that exit directly to the experiment, but it prevents claiming any runtime improvement.
+
+3. **Because the experiment never triggered its intended acceptance, it does not improve the known root cause.**
+   - The stale-separator verification failure still appears unchanged.
+   - The experiment therefore adds complexity without demonstrated benefit.
+
+4. **The rolled-back baseline immediately beat it on the same Mini with the same explicit target env.**
+   - After removing the experiment and relaunching `/Applications/SaneBar.app`, the same focused Display loop passed `5/5` with:
+     - `SANEBAR_SMOKE_APP_PATH=/Applications/SaneBar.app`
+     - `SANEBAR_SMOKE_PROCESS_PATH=/Applications/SaneBar.app/Contents/MacOS/SaneBar`
+   - Baseline log window still showed the known stale-separator pattern (`5` visible failures followed by `5` standard retries), but the smoke itself stayed green and the app stayed inside the idle budget.
+   - That is the apples-to-apples runtime comparison that makes the rollback decision trustworthy.
+
+### Decision
+
+- Roll back the manager-level early classification experiment.
+- Keep the current baseline hardening:
+  - visible target re-resolution before retry
+  - visible shield-backed final retry
+  - 9.0 second AppleScript move timeout
+- Treat this hypothesis as tested and rejected.
+
+## 2026-03-22 Reset-Family Follow-up
+
+**Updated:** 2026-03-22 23:45 ET | **Status:** startup/reset family still active; always-hidden validation blind spot fixed locally; poisoned-startup proof still not release-clear | **TTL:** 7d
+**Sources:** fresh GitHub `#123 #122`, fresh inbox threads `#425 #426`, local code audit (`MenuBarManager`, `StatusBarController`, `MenuBarManager+AlwaysHidden`), local targeted tests, local startup probe on current Debug artifact
+
+### Fresh findings
+
+1. **The newest customer pain is still the startup/reset family, not the older move bug.**
+   - `#123`, `#425`, and `#426` all point at visible/hidden/perma-hidden state collapsing after sleep/wake or restart on `2.1.33`.
+   - The March 21 move-path hardening does not address this family by itself.
+
+2. **Current code had a real always-hidden validation blind spot.**
+   - Delayed position validation only considered main separator + main icon geometry when deciding the layout was stable.
+   - A misordered always-hidden separator could therefore survive validation and let the app keep or capture "healthy" state from a broken layout.
+
+3. **Local source now closes that always-hidden blind spot.**
+   - Runtime snapshots now carry the always-hidden separator X.
+   - Delayed validation now repairs a misordered always-hidden separator before blessing the layout as stable.
+   - Stable-layout backup capture now waits briefly for a safe current-width backup instead of assuming persisted positions are ready immediately.
+
+4. **Focused local tests are green after the patch.**
+   - `MenuBarManagerTests`
+   - `StatusBarControllerTests`
+   - `RuntimeGuardXCTests`
+   - Result: `106` targeted tests passed locally on March 22.
+
+5. **A deeper poisoned-startup probe is still red on the current Debug artifact.**
+   - After one healthy launch, the Debug build does create:
+     - `SaneBar_Position_Backup_1470_main = 180`
+     - `SaneBar_Position_Backup_1470_separator = 300`
+   - But `startup_layout_probe.rb` still fails on the poisoned ordinal-seed replay.
+   - What happens now:
+     - init restores the current-width backup over `0/1`
+     - startup still falls into `invalid-status-items`
+     - two persisted-layout recreates plus one autosave-version bump still leave the app with missing status-item windows inside the probe window
+   - So the current local tree is improved, but not yet trustworthy enough to call ready for a release tomorrow.
+
+### Current release call
+
+- **Do not call this ready for tomorrow yet.**
+- Next proof needed:
+  - rerun the real routed `verify` / startup probe after this research refresh
+  - if the Debug-only probe failure reproduces on the trusted staged artifact too, keep digging in the invalid-status-items startup path before cutting a release
