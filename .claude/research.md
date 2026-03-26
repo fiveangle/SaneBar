@@ -2948,3 +2948,51 @@ I tested a narrower follow-up hypothesis: keep the drag layer unchanged, but in 
 
 - This fix closes one concrete wake-family hole that was still causing post-2.1.34 field symptoms.
 - Remaining release work is no longer “does wake recovery obviously leave the app stuck expanded?” That specific path is now re-proven on the mini.
+
+## 2026-03-26 Missing-Icon Recovery Ship Pass (2.1.36) | Updated: 2026-03-26 15:12 ET | Status: shipped | TTL: 14d
+
+### Fresh sources used
+
+1. **GitHub**
+   - SaneBar issue queue and latest reporter updates for `#129`, `#126`, and `#111`.
+   - Fresh maintainer follow-up comments posted after 2.1.36 shipped.
+
+2. **Local runtime/code**
+   - `Core/MenuBarManager.swift`
+   - `Core/Controllers/StatusBarController.swift`
+   - `Core/Services/MenuBarOperationCoordinator.swift`
+   - `Scripts/uninstall_sanebar.sh`
+   - routed `release_preflight` and `release --full` output from the mini
+
+3. **Live release surfaces**
+   - shipped appcast entry for `2.1.36`
+   - live download ZIP `SaneBar-2.1.36.zip`
+   - live Homebrew cask / email webhook / docs link verification from the release script
+
+### What changed
+
+1. **`Reset to Defaults` now clears the stale status-item state, not just settings JSON.**
+   - `MenuBarManager.resetToDefaults()` now calls `StatusBarController.resetPersistentStatusItemState(...)`, clears cached geometry, recreates status items, and schedules validation.
+   - This directly addresses the field complaint that Reset to Defaults did nothing after the icon vanished.
+
+2. **Startup follow-up no longer prefers replaying poisoned layout for invalid status-item windows.**
+   - `MenuBarOperationCoordinator` now routes `.invalidStatusItems` / `.missingCoordinates` in the startup follow-up path through `repairPersistedLayoutAndRecreate(...)` instead of `recreateFromPersistedLayout(...)`.
+   - That matches the latest `#111` diagnostics, where startup looked briefly recoverable and then collapsed again once follow-up validation replayed bad persisted state.
+
+3. **Uninstall now clears the surviving NSStatusItem state that could survive reinstall.**
+   - `Scripts/uninstall_sanebar.sh` now deletes the current-host/global `NSStatusItem Visible...` and `NSStatusItem Preferred Position...` keys.
+   - This directly matches `#129` / `#126`, where delete settings + uninstall + reinstall still left the icon missing.
+
+4. **The release is live and re-proven on the routed mini path.**
+   - `release_preflight` passed with runtime smoke, focused shared-bundle move smoke, and startup layout probe.
+   - `release --full --version 2.1.36` passed through build, notarization, deploy, appcast propagation, Homebrew update, and webhook verification.
+
+### Current interpretation
+
+1. **The shipped 2.1.36 baseline finally lines up with the actual missing-icon failure family.**
+   - Before 2.1.36, the app could still preserve or replay stale NSStatusItem state across reset/reinstall/startup follow-up.
+   - After 2.1.36, the reset path, uninstall path, and startup follow-up path all attack the same stale-state cluster instead of leaving one leg behind.
+
+2. **The issue cluster is now in “waiting for reporter retest,” not “maintainer has not answered.”**
+   - `#129`, `#126`, and `#111` all have fresh post-ship maintainer replies.
+   - Inbox is at `0` action-needed after replying to the matching customer threads.
