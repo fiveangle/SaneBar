@@ -3262,3 +3262,55 @@ I tested a narrower follow-up hypothesis: keep the drag layer unchanged, but in 
      - `peakCpu=16.6 > 15.0`
      - `avgCpu=8.2 > 5.0`, `peakCpu=16.3 > 15.0`
    - These are resource-budget failures, not the old layout/disappearing-icon or browse activation failures.
+
+## 2026-04-07 19:19 EDT lost-icon already-broken-state follow-up
+
+**Updated:** 2026-04-07 19:19 EDT | **Status:** verified code-level gap for GitHub `#129`; candidate fix prepared, Mini verify pending rerun | **TTL:** 7d
+**Sources:** Apple docs for `NSStatusItem.autosaveName`, `NSStatusItem.isVisible`, and `NSStatusItem.behavior`; live GitHub issue `#129`; web search for `NSStatusItem isVisible autosaveName` persistence behavior (low-signal beyond Apple’s docs); local code audit of `Core/MenuBarManager.swift`, `Core/Services/MenuBarOperationCoordinator.swift`, and `Core/Controllers/StatusBarController.swift`
+
+### Apple docs notes
+
+1. **Apple treats `autosaveName` as the persistence identity for each status item.**
+   - `autosaveName` is the unique name used for saving and restoring status-item information.
+   - Apple explicitly says apps with multiple status items should set an autosave name for each item.
+
+2. **Apple documents that `isVisible` changes when the user removes the item and that the visibility state persists off the autosave name.**
+   - `isVisible` can change when the user manually removes the item.
+   - Apple explicitly says you can observe that change with KVO.
+   - Apple explicitly says the visibility state persists and restores automatically based on `autosaveName`.
+
+3. **`behavior` does not provide a richer system recovery contract.**
+   - It only controls allowed status-item behaviors.
+   - There is no documented system API that would repair a poisoned persisted layout for us.
+
+### Fresh GitHub evidence
+
+1. **`#129` is now specifically an already-broken-state recovery bug, not just the original drag-out trigger.**
+   - The reporter upgraded to `2.1.39` after the icon was already gone.
+   - The lost state survived upgrade, `Reset to Defaults`, settings deletion, uninstall, and reinstall.
+   - The reporter is willing to run diagnostics, which means the next patch should target persisted-state recovery directly rather than the original drag-out event alone.
+
+### Fresh local findings
+
+1. **The runtime observer fix covers new unexpected visibility loss, but startup recovery still had a weaker path for already-broken state.**
+   - `MenuBarManager` now observes `NSStatusItem.isVisible` and routes unexpected disappearance through shared recovery.
+   - That addresses the live “user drags it out now” path.
+
+2. **Startup recovery for invalid or missing status items was not using the same hard scrub as `Reset to Defaults`.**
+   - `resetToDefaults()` calls `StatusBarController.resetPersistentStatusItemState(...)`, which clears visibility overrides, historical autosave namespaces, and display backups before recreating status items.
+   - `executeStatusItemRecoveryAction(.repairPersistedLayoutAndRecreate)` did not do that.
+   - It only called `StatusBarController.recoverStartupPositions(...)`, which reuses persisted layout state rather than fully scrubbing it.
+
+3. **That difference is a plausible explanation for `#129`.**
+   - If the app is already in a poisoned startup namespace after a past drag-out, the startup follow-up recovery can keep replaying the bad persisted state.
+   - A full persisted-state reset is more appropriate for `.invalidStatusItems` and `.missingCoordinates` than for pure `.invalidGeometry`.
+
+### Action from this pass
+
+1. **Candidate fix prepared.**
+   - Startup recovery now hard-resets persisted status-item state for `.invalidStatusItems` and `.missingCoordinates`.
+   - Pure geometry drift still uses the lighter `recoverStartupPositions(...)` path.
+
+2. **Coverage added at the decision level.**
+   - Added a `MenuBarManager` recovery-mode decision test.
+   - Updated the runtime guard so source-level regression checks now require both the hard-reset path and the lighter geometry-only path.
