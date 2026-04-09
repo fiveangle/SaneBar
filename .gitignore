@@ -79,6 +79,7 @@ releases/
 .claude/learnings.jsonl
 .claude/SESSION_HANDOFF_*.md
 .claude/archive/
+.claude/worktrees/
 .claude/*.log.old
 .claude/*count*.json
 .claude/enforcement_log.jsonl
